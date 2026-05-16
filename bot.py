@@ -922,7 +922,7 @@ def process_edit_request(message, maker_id):
     bot.send_message(message.chat.id, "Запрос отправлен администратору.")
     notify_admins(f"📩 Запрос правок от скинмейкера ID{maker_id}: {message.text}")
 
-# ---------- ПОДАЧА ЗАЯВКИ ----------
+# ---------- ПОДАЧА ЗАЯВКИ (С ВОЗМОЖНОСТЬЮ ОТМЕНЫ) ----------
 user_states = {}
 
 @bot.message_handler(func=lambda m: m.text == "📝 Подать заявку")
@@ -932,50 +932,82 @@ def apply_start(message):
         return
     user_id = message.from_user.id
     user_states[user_id] = {'photos': [], 'step': 'photo'}
-    msg = bot.send_message(message.chat.id, "📸 Отправьте фото ваших работ (можно до 9, по одному, затем /done):")
+    msg = bot.send_message(
+        message.chat.id, 
+        "📸 Отправьте фото ваших работ (можно до 9, по одному, затем /done)\n"
+        "❌ Для отмены отправьте /cancel в любой момент."
+    )
     bot.register_next_step_handler(msg, process_apply_photo)
 
+def check_cancel(message, next_func, *args):
+    """Проверяет, не хочет ли пользователь отменить процесс"""
+    if message.text and message.text.strip() == '/cancel':
+        user_id = message.from_user.id
+        if user_id in user_states:
+            del user_states[user_id]
+        bot.send_message(message.chat.id, "❌ Подача заявки отменена.", reply_markup=main_menu_markup())
+        return True
+    return False
+
 def process_apply_photo(message):
+    if check_cancel(message, process_apply_photo):
+        return
     user_id = message.from_user.id
     if message.content_type == 'photo':
         if len(user_states[user_id]['photos']) < 9:
             user_states[user_id]['photos'].append(message.photo[-1].file_id)
+            bot.send_message(message.chat.id, f"✅ Фото {len(user_states[user_id]['photos'])}/9 добавлено.")
         else:
-            bot.send_message(message.chat.id, "Максимум 9 фото.")
+            bot.send_message(message.chat.id, "⚠️ Максимум 9 фото. Отправьте /done для продолжения.")
     elif message.text and message.text.startswith('/done'):
         if not user_states[user_id]['photos']:
-            bot.send_message(message.chat.id, "Отправьте хотя бы одно фото!")
+            bot.send_message(message.chat.id, "❌ Отправьте хотя бы одно фото!")
             bot.register_next_step_handler(message, process_apply_photo)
             return
         user_states[user_id]['step'] = 'name'
-        msg = bot.send_message(message.chat.id, "✏️ Введите ваше имя (никнейм):")
+        msg = bot.send_message(
+            message.chat.id, 
+            "✏️ Введите ваше имя (никнейм):\n❌ /cancel — отмена"
+        )
         bot.register_next_step_handler(msg, process_apply_name)
         return
     else:
-        bot.send_message(message.chat.id, "Отправьте фото или команду /done")
-    msg = bot.send_message(message.chat.id, "Отправьте ещё фото или /done")
+        bot.send_message(message.chat.id, "📸 Отправьте фото, /done для продолжения или /cancel для отмены.")
+    msg = bot.send_message(message.chat.id, "Ожидаю следующее фото, /done или /cancel...")
     bot.register_next_step_handler(msg, process_apply_photo)
 
 def process_apply_name(message):
+    if check_cancel(message, process_apply_name):
+        return
     user_id = message.from_user.id
     user_states[user_id]['name'] = message.text
-    msg = bot.send_message(message.chat.id, "💬 Введите описание ваших услуг:")
+    msg = bot.send_message(
+        message.chat.id, 
+        "💬 Введите описание ваших услуг:\n❌ /cancel — отмена"
+    )
     bot.register_next_step_handler(msg, process_apply_description)
 
 def process_apply_description(message):
+    if check_cancel(message, process_apply_description):
+        return
     user_id = message.from_user.id
     user_states[user_id]['description'] = message.text
-    msg = bot.send_message(message.chat.id, "💲 Введите ценник (должен быть выше 100):")
+    msg = bot.send_message(
+        message.chat.id, 
+        "💲 Введите ценник (должен быть выше 100):\n❌ /cancel — отмена"
+    )
     bot.register_next_step_handler(msg, process_apply_price)
 
 def process_apply_price(message):
+    if check_cancel(message, process_apply_price):
+        return
     user_id = message.from_user.id
     try:
         price = int(message.text)
         if price <= 100:
             raise ValueError
     except:
-        msg = bot.send_message(message.chat.id, "Ценник должен быть числом >100. Повторите:")
+        msg = bot.send_message(message.chat.id, "❌ Ценник должен быть числом >100. Повторите или /cancel для отмены:")
         bot.register_next_step_handler(msg, process_apply_price)
         return
     user_states[user_id]['price'] = price
@@ -984,12 +1016,24 @@ def process_apply_price(message):
     for s in styles:
         markup.add(types.InlineKeyboardButton(s, callback_data=f'applystyle_{s}'))
     markup.add(types.InlineKeyboardButton("✅ Готово", callback_data='applystyle_done'))
+    markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data='apply_cancel'))
     user_states[user_id]['selected_styles'] = []
     bot.send_message(message.chat.id, "🎨 Выберите стиль (можно несколько):", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data == 'apply_cancel')
+def apply_cancel_cb(call):
+    user_id = call.from_user.id
+    if user_id in user_states:
+        del user_states[user_id]
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    bot.send_message(call.message.chat.id, "❌ Подача заявки отменена.", reply_markup=main_menu_markup())
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('applystyle_'))
 def apply_style_select(call):
     user_id = call.from_user.id
+    if user_id not in user_states:
+        bot.answer_callback_query(call.id, "Ошибка: начните заявку заново.")
+        return
     style = call.data.split('_')[1]
     if style == 'done':
         if not user_states[user_id]['selected_styles']:
@@ -1005,6 +1049,7 @@ def apply_style_select(call):
         for s in services:
             markup.add(types.InlineKeyboardButton(s, callback_data=f'applyservice_{s}'))
         markup.add(types.InlineKeyboardButton("✅ Готово", callback_data='applyservice_done'))
+        markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data='apply_cancel'))
         user_states[user_id]['selected_services'] = []
         bot.send_message(call.message.chat.id, "🛠️ Выберите услуги:", reply_markup=markup)
     else:
@@ -1018,13 +1063,19 @@ def apply_style_select(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('applyservice_'))
 def apply_service_select(call):
     user_id = call.from_user.id
+    if user_id not in user_states:
+        bot.answer_callback_query(call.id, "Ошибка: начните заявку заново.")
+        return
     serv = call.data.split('_')[1]
     if serv == 'done':
         if not user_states[user_id]['selected_services']:
             bot.answer_callback_query(call.id, "Выберите хотя бы одну услугу!")
             return
         bot.delete_message(call.message.chat.id, call.message.message_id)
-        msg = bot.send_message(call.message.chat.id, "🔗 Введите ссылку для заказа (Telegram-аккаунт, бот или канал). Если нет, отправьте '-'")
+        msg = bot.send_message(
+            call.message.chat.id, 
+            "🔗 Введите ссылку для заказа (Telegram-аккаунт, бот или канал). Если нет, отправьте '-'\n❌ /cancel — отмена"
+        )
         bot.register_next_step_handler(msg, process_apply_contact)
     else:
         sel = user_states[user_id]['selected_services']
@@ -1035,25 +1086,33 @@ def apply_service_select(call):
         bot.answer_callback_query(call.id, f"Выбрано: {', '.join(sel)}")
 
 def process_apply_contact(message):
+    if check_cancel(message, process_apply_contact):
+        return
     user_id = message.from_user.id
     if message.text == '-':
         user_states[user_id]['contact_link'] = None
     else:
         user_states[user_id]['contact_link'] = message.text.strip()
-    msg = bot.send_message(message.chat.id, "Теперь укажите ссылки на соцсети (можно пропустить, отправив '-').\n"
-                          "Вводите в формате:\n"
-                          "Telegram: ссылка\n"
-                          "Twitter: ссылка\n"
-                          "Pinterest: ссылка\n"
-                          "TikTok: ссылка\n"
-                          "YouTube: ссылка\n"
-                          "Instagram: ссылка\n"
-                          "VK: ссылка\n"
-                          "Max: ссылка\n\n"
-                          "Или одной строкой через запятую в формате 'TG: ссылка, TW: ссылка'. Для пропуска отправьте '-'")
+    msg = bot.send_message(
+        message.chat.id, 
+        "Теперь укажите ссылки на соцсети (можно пропустить, отправив '-').\n"
+        "Вводите в формате:\n"
+        "Telegram: ссылка\n"
+        "Twitter: ссылка\n"
+        "Pinterest: ссылка\n"
+        "TikTok: ссылка\n"
+        "YouTube: ссылка\n"
+        "Instagram: ссылка\n"
+        "VK: ссылка\n"
+        "Max: ссылка\n\n"
+        "Или одной строкой через запятую в формате 'TG: ссылка, TW: ссылка'. Для пропуска отправьте '-'\n"
+        "❌ /cancel — отмена"
+    )
     bot.register_next_step_handler(msg, process_apply_social)
 
 def process_apply_social(message):
+    if check_cancel(message, process_apply_social):
+        return
     user_id = message.from_user.id
     text = message.text.strip()
     socials = {
@@ -1101,7 +1160,7 @@ def process_apply_social(message):
          data.get('social_instagram'), data.get('social_vk'), data.get('social_max')))
     conn.commit()
     conn.close()
-    bot.send_message(message.chat.id, "✅ Заявка отправлена! Ожидайте одобрения администратором.")
+    bot.send_message(message.chat.id, "✅ Заявка отправлена! Ожидайте одобрения администратором.", reply_markup=main_menu_markup())
     notify_admins(f"📋 Новая заявка от @{message.from_user.username}")
 
 # ---------- ЗАЯВКИ (АДМИНКА) ----------
