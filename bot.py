@@ -8,11 +8,10 @@ import threading
 import time
 import os
 
-TOKEN = "8759641715:AAFab205NGqwfUvxZr4uWT2KaTl0XDp9GMk"
+TOKEN = "8623923833:AAHv6xe6u9xtncfp_7xRvjJzOKorOiLcPwY"
 ADMIN_ID = 5268276353
 
 PROXY = None
-
 if PROXY:
     from telebot import apihelper
     apihelper.proxy = {'https': PROXY}
@@ -52,7 +51,16 @@ def init_db():
         busy_until TEXT,
         custom_emoji TEXT DEFAULT '🎨',
         country_code TEXT DEFAULT 'RU',
-        display_experience TEXT
+        display_experience TEXT,
+        contact_link TEXT,
+        social_telegram TEXT,
+        social_twitter TEXT,
+        social_pinterest TEXT,
+        social_tiktok TEXT,
+        social_youtube TEXT,
+        social_instagram TEXT,
+        social_vk TEXT,
+        social_max TEXT
     )''')
 
     c.execute('''CREATE TABLE IF NOT EXISTS ratings (
@@ -107,7 +115,16 @@ def init_db():
         custom_style_name TEXT,
         status TEXT DEFAULT 'pending',
         admin_comment TEXT,
-        date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        contact_link TEXT,
+        social_telegram TEXT,
+        social_twitter TEXT,
+        social_pinterest TEXT,
+        social_tiktok TEXT,
+        social_youtube TEXT,
+        social_instagram TEXT,
+        social_vk TEXT,
+        social_max TEXT
     )''')
 
     c.execute('''CREATE TABLE IF NOT EXISTS achievements (
@@ -331,7 +348,9 @@ def format_maker_card(maker, user_id):
     (id, uid, uname, name, desc, price, services, photo_ids, rating, total,
      complaints, active, vacation, vac_text, reg_date, style, custom_style,
      dmin, dmax, shadow, shadow_reason, verdict, views, orders, orders_conf,
-     busy_until, emoji, country, disp_exp) = maker
+     busy_until, emoji, country, disp_exp,
+     contact_link,
+     social_tg, social_tw, social_pin, social_tiktok, social_yt, social_inst, social_vk, social_max) = maker
 
     flag = flags.get(country, '🏳️')
     country_name = countries.get(country, country)
@@ -461,12 +480,17 @@ def show_card(chat_id, index):
     if index < len(makers)-1:
         nav_buttons.append(types.InlineKeyboardButton(get_text(chat_id, 'next'), callback_data=f'nav_{index+1}'))
     markup.row(*nav_buttons)
+    if maker[29]:  # contact_link
+        markup.row(types.InlineKeyboardButton("✉️ Заказ", url=maker[29]))
     markup.row(
         types.InlineKeyboardButton(get_text(chat_id, 'rating'), callback_data=f'rate_{maker[0]}'),
         types.InlineKeyboardButton(get_text(chat_id, 'reviews'), callback_data=f'reviews_{maker[0]}'),
         types.InlineKeyboardButton(get_text(chat_id, 'bookmark_add'), callback_data=f'bookmark_{maker[0]}')
     )
-    markup.row(types.InlineKeyboardButton(get_text(chat_id, 'gallery'), callback_data=f'gallery_{maker[0]}'))
+    markup.row(
+        types.InlineKeyboardButton("🌐 Соц сети", callback_data=f'social_{maker[0]}'),
+        types.InlineKeyboardButton(get_text(chat_id, 'gallery'), callback_data=f'gallery_{maker[0]}')
+    )
     if photo_ids:
         bot.send_photo(chat_id, photo_ids[0], caption=text, reply_markup=markup)
     else:
@@ -478,6 +502,45 @@ def start(message):
         bot.send_message(message.chat.id, "🚫 Вы заблокированы.")
         return
     bot.send_message(message.chat.id, "🎨 Добро пожаловать в Frime Skin!", reply_markup=main_menu_markup(message.from_user.id))
+
+@bot.message_handler(commands=['help'])
+def help_command(message):
+    text = "📋 Доступные команды:\n/start — главное меню\n/help — это сообщение\n/admin — админ-панель (только для администратора)"
+    bot.send_message(message.chat.id, text)
+
+@bot.message_handler(commands=['admin'])
+def admin_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
+    args = message.text.split()
+    if len(args) > 1 and args[1] == 'secret' and len(args) > 2 and args[2] == 'command' and len(args) > 3 and args[3] == 'block':
+        secret_text = (
+            "🔐 Секретный блок команд администратора:\n"
+            "/admin — открыть админ-панель\n"
+            "/admin_applications — список заявок\n"
+            "/admin_all_makers — все скинмейкеры\n"
+            "/admin_stats — статистика\n"
+            "/admin_announce — создать объявление\n"
+            "/admin_export — экспорт БД\n"
+            "/admin_shadow_ban <id> — теневой бан\n"
+            "/admin_unshadow <id> — снять теневой бан\n"
+            "/admin_blacklist <id> — добавить в чёрный список\n"
+            "/admin_whitelist <id> — убрать из чёрного списка\n"
+            "/admin_edit_requests — запросы правок\n"
+            "/admin_log — лог действий"
+        )
+        bot.send_message(message.chat.id, secret_text)
+        return
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add(
+        get_text(message.from_user.id, 'applications'),
+        get_text(message.from_user.id, 'all_makers'),
+        get_text(message.from_user.id, 'stats'),
+        get_text(message.from_user.id, 'announce'),
+        get_text(message.from_user.id, 'export'),
+        "🔙 Выйти"
+    )
+    bot.send_message(message.chat.id, get_text(message.from_user.id, 'admin_panel'), reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == get_text(m.from_user.id, 'search'))
 def search_cmd(message):
@@ -736,20 +799,9 @@ def apply_service_select(call):
         if not user_states[user_id]['selected_services']:
             bot.answer_callback_query(call.id, "Выберите хотя бы одну услугу!")
             return
-        data = user_states.pop(user_id)
-        conn = sqlite3.connect('firme_skin.db')
-        c = conn.cursor()
-        c.execute('''INSERT INTO applications
-            (user_id, username, name, description, price, services, photo_ids, style)
-            VALUES (?,?,?,?,?,?,?,?)''',
-            (user_id, call.from_user.username or "", data['name'], data['description'],
-             data['price'], ', '.join(data['selected_services']),
-             json.dumps(data['photos']), ', '.join(data['selected_styles'])))
-        conn.commit()
-        conn.close()
         bot.delete_message(call.message.chat.id, call.message.message_id)
-        bot.send_message(call.message.chat.id, get_text(user_id, 'apply_done'))
-        bot.send_message(ADMIN_ID, f"📋 Новая заявка от @{call.from_user.username}")
+        msg = bot.send_message(call.message.chat.id, "🔗 Введите ссылку для заказа (Telegram-аккаунт, бот или канал). Если нет, отправьте '-'")
+        bot.register_next_step_handler(msg, process_apply_contact)
     else:
         sel = user_states[user_id]['selected_services']
         if serv in sel:
@@ -757,6 +809,76 @@ def apply_service_select(call):
         else:
             sel.append(serv)
         bot.answer_callback_query(call.id, f"Выбрано: {', '.join(sel)}")
+
+def process_apply_contact(message):
+    user_id = message.from_user.id
+    if message.text == '-':
+        user_states[user_id]['contact_link'] = None
+    else:
+        user_states[user_id]['contact_link'] = message.text.strip()
+    msg = bot.send_message(message.chat.id, "Теперь укажите ссылки на соцсети (можно пропустить, отправив '-').\n"
+                          "Вводите в формате:\n"
+                          "Telegram: ссылка\n"
+                          "Twitter: ссылка\n"
+                          "Pinterest: ссылка\n"
+                          "TikTok: ссылка\n"
+                          "YouTube: ссылка\n"
+                          "Instagram: ссылка\n"
+                          "VK: ссылка\n"
+                          "Max: ссылка\n\n"
+                          "Или одной строкой через запятую в формате 'TG: ссылка, TW: ссылка'. Для пропуска отправьте '-'")
+    bot.register_next_step_handler(msg, process_apply_social)
+
+def process_apply_social(message):
+    user_id = message.from_user.id
+    text = message.text.strip()
+    socials = {
+        'social_telegram': None, 'social_twitter': None, 'social_pinterest': None,
+        'social_tiktok': None, 'social_youtube': None, 'social_instagram': None,
+        'social_vk': None, 'social_max': None
+    }
+    if text != '-':
+        pairs = text.replace('\n', ',').split(',')
+        for pair in pairs:
+            if ':' in pair:
+                key, val = pair.split(':', 1)
+                key = key.strip().lower()
+                val = val.strip()
+                if 'tg' in key or 'telegram' in key:
+                    socials['social_telegram'] = val
+                elif 'tw' in key or 'twitter' in key or 'x' in key:
+                    socials['social_twitter'] = val
+                elif 'pin' in key or 'pinterest' in key:
+                    socials['social_pinterest'] = val
+                elif 'tik' in key or 'tiktok' in key:
+                    socials['social_tiktok'] = val
+                elif 'you' in key or 'youtube' in key:
+                    socials['social_youtube'] = val
+                elif 'insta' in key or 'instagram' in key:
+                    socials['social_instagram'] = val
+                elif 'vk' in key:
+                    socials['social_vk'] = val
+                elif 'max' in key:
+                    socials['social_max'] = val
+    user_states[user_id].update(socials)
+    data = user_states.pop(user_id)
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute('''INSERT INTO applications
+        (user_id, username, name, description, price, services, photo_ids, style, custom_style_name,
+         contact_link, social_telegram, social_twitter, social_pinterest, social_tiktok,
+         social_youtube, social_instagram, social_vk, social_max)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (user_id, message.from_user.username or "", data['name'], data['description'],
+         data['price'], ', '.join(data['selected_services']),
+         json.dumps(data['photos']), ', '.join(data['selected_styles']), data.get('custom_style', ''),
+         data.get('contact_link'), data.get('social_telegram'), data.get('social_twitter'),
+         data.get('social_pinterest'), data.get('social_tiktok'), data.get('social_youtube'),
+         data.get('social_instagram'), data.get('social_vk'), data.get('social_max')))
+    conn.commit()
+    conn.close()
+    bot.send_message(message.chat.id, "✅ Заявка отправлена! Ожидайте одобрения администратором.")
+    bot.send_message(ADMIN_ID, f"📋 Новая заявка от @{message.from_user.username}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('rate_'))
 def rate_start(call):
@@ -897,23 +1019,10 @@ def process_review_after(message):
     conn.close()
     bot.send_message(message.chat.id, "✅ Отзыв добавлен!")
 
-@bot.message_handler(commands=['admin'])
-def admin_cmd(message):
+@bot.message_handler(commands=['admin_applications'])
+def admin_applications_cmd(message):
     if not is_admin(message.from_user.id):
         return
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(
-        get_text(message.from_user.id, 'applications'),
-        get_text(message.from_user.id, 'all_makers'),
-        get_text(message.from_user.id, 'stats'),
-        get_text(message.from_user.id, 'announce'),
-        get_text(message.from_user.id, 'export'),
-        "🔙 Выйти"
-    )
-    bot.send_message(message.chat.id, get_text(message.from_user.id, 'admin_panel'), reply_markup=markup)
-
-@bot.message_handler(func=lambda m: m.text == get_text(m.from_user.id, 'applications') and is_admin(m.from_user.id))
-def admin_applications(message):
     conn = sqlite3.connect('firme_skin.db')
     c = conn.cursor()
     c.execute("SELECT * FROM applications WHERE status='pending'")
@@ -939,9 +1048,12 @@ def approve_app(call):
     c.execute("SELECT * FROM applications WHERE id=?", (app_id,))
     app = c.fetchone()
     c.execute('''INSERT INTO skin_makers
-        (user_id, username, name, description, price, services, photo_ids, style, custom_style_name)
-        VALUES (?,?,?,?,?,?,?,?,?)''',
-        (app[1], app[2], app[3], app[4], app[5], app[6], app[7], app[8], app[9]))
+        (user_id, username, name, description, price, services, photo_ids, style, custom_style_name,
+         contact_link, social_telegram, social_twitter, social_pinterest, social_tiktok,
+         social_youtube, social_instagram, social_vk, social_max)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (app[1], app[2], app[3], app[4], app[5], app[6], app[7], app[8], app[9],
+         app[13], app[14], app[15], app[16], app[17], app[18], app[19], app[20], app[21]))
     c.execute("UPDATE applications SET status='approved' WHERE id=?", (app_id,))
     conn.commit()
     conn.close()
@@ -962,8 +1074,10 @@ def reject_app(call):
     bot.send_message(call.message.chat.id, f"Заявка #{app_id} отклонена.")
     log_action(ADMIN_ID, 'reject_application', f'App #{app_id}')
 
-@bot.message_handler(func=lambda m: m.text == get_text(m.from_user.id, 'all_makers') and is_admin(m.from_user.id))
-def admin_all_makers(message):
+@bot.message_handler(commands=['admin_all_makers'])
+def admin_all_makers_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
     conn = sqlite3.connect('firme_skin.db')
     c = conn.cursor()
     c.execute("SELECT id, name, shadow_banned, is_active FROM skin_makers")
@@ -975,8 +1089,10 @@ def admin_all_makers(message):
     text = "Список скинмейкеров:\n" + "\n".join([f"{m[0]}: {m[1]} (shadow: {m[2]}, active: {m[3]})" for m in makers])
     bot.send_message(message.chat.id, text[:4000])
 
-@bot.message_handler(func=lambda m: m.text == get_text(m.from_user.id, 'stats') and is_admin(m.from_user.id))
-def admin_stats(message):
+@bot.message_handler(commands=['admin_stats'])
+def admin_stats_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
     conn = sqlite3.connect('firme_skin.db')
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM skin_makers")
@@ -989,8 +1105,10 @@ def admin_stats(message):
     text = f"📊 Статистика:\n• Скинмейкеров: {makers_count}\n• Заявок ожидает: {pending}\n• Отзывов: {reviews_count}"
     bot.send_message(message.chat.id, text)
 
-@bot.message_handler(func=lambda m: m.text == get_text(m.from_user.id, 'announce') and is_admin(m.from_user.id))
-def create_announce(message):
+@bot.message_handler(commands=['admin_announce'])
+def admin_announce_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
     msg = bot.send_message(message.chat.id, "Введите текст объявления:")
     bot.register_next_step_handler(msg, process_announce_text)
 
@@ -1011,6 +1129,116 @@ def process_announce_photo(message, text):
     bot.send_message(message.chat.id, "Объявление создано.")
     log_action(ADMIN_ID, 'create_announcement')
 
+@bot.message_handler(commands=['admin_export'])
+def admin_export_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
+    conn = sqlite3.connect('firme_skin.db')
+    with open('export_frime.csv', 'w', encoding='utf-8') as f:
+        for line in conn.iterdump():
+            f.write('%s\n' % line)
+    conn.close()
+    bot.send_document(message.chat.id, open('export_frime.csv', 'rb'), caption="Дамп базы данных")
+    log_action(ADMIN_ID, 'export_db')
+
+@bot.message_handler(commands=['admin_shadow_ban'])
+def admin_shadow_ban_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "Укажите ID скинмейкера: /admin_shadow_ban <id>")
+        return
+    maker_id = int(args[1])
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute("UPDATE skin_makers SET shadow_banned=1 WHERE id=?", (maker_id,))
+    conn.commit()
+    conn.close()
+    bot.send_message(message.chat.id, f"Теневой бан применён к ID {maker_id}")
+    log_action(ADMIN_ID, 'shadow_ban', f'Maker {maker_id}')
+
+@bot.message_handler(commands=['admin_unshadow'])
+def admin_unshadow_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "Укажите ID скинмейкера: /admin_unshadow <id>")
+        return
+    maker_id = int(args[1])
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute("UPDATE skin_makers SET shadow_banned=0 WHERE id=?", (maker_id,))
+    conn.commit()
+    conn.close()
+    bot.send_message(message.chat.id, f"Теневой бан снят с ID {maker_id}")
+    log_action(ADMIN_ID, 'unshadow', f'Maker {maker_id}')
+
+@bot.message_handler(commands=['admin_blacklist'])
+def admin_blacklist_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "Укажите ID пользователя: /admin_blacklist <user_id>")
+        return
+    user_id = int(args[1])
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO blacklist (user_id) VALUES (?)", (user_id,))
+    conn.commit()
+    conn.close()
+    bot.send_message(message.chat.id, f"Пользователь {user_id} добавлен в чёрный список.")
+    log_action(ADMIN_ID, 'blacklist', f'User {user_id}')
+
+@bot.message_handler(commands=['admin_whitelist'])
+def admin_whitelist_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "Укажите ID пользователя: /admin_whitelist <user_id>")
+        return
+    user_id = int(args[1])
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM blacklist WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+    bot.send_message(message.chat.id, f"Пользователь {user_id} удалён из чёрного списка.")
+    log_action(ADMIN_ID, 'whitelist', f'User {user_id}')
+
+@bot.message_handler(commands=['admin_edit_requests'])
+def admin_edit_requests_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM edit_requests WHERE status='pending'")
+    reqs = c.fetchall()
+    conn.close()
+    if not reqs:
+        bot.send_message(message.chat.id, "Нет запросов правок.")
+        return
+    text = "Запросы правок:\n" + "\n".join([f"#{r[0]}: maker {r[1]}, {r[3]}" for r in reqs])
+    bot.send_message(message.chat.id, text[:4000])
+
+@bot.message_handler(commands=['admin_log'])
+def admin_log_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM action_log ORDER BY date DESC LIMIT 20")
+    logs = c.fetchall()
+    conn.close()
+    if not logs:
+        bot.send_message(message.chat.id, "Лог пуст.")
+        return
+    text = "Последние действия:\n" + "\n".join([f"{l[3][:19]}: {l[2]}" for l in logs])
+    bot.send_message(message.chat.id, text[:4000])
+
 @bot.message_handler(func=lambda m: m.text == get_text(m.from_user.id, 'news'))
 def show_news(message):
     conn = sqlite3.connect('firme_skin.db')
@@ -1027,16 +1255,6 @@ def show_news(message):
             bot.send_photo(message.chat.id, n[1], caption=text)
         else:
             bot.send_message(message.chat.id, text)
-
-@bot.message_handler(func=lambda m: m.text == get_text(m.from_user.id, 'export') and is_admin(m.from_user.id))
-def export_db(message):
-    conn = sqlite3.connect('firme_skin.db')
-    with open('export_frime.csv', 'w', encoding='utf-8') as f:
-        for line in conn.iterdump():
-            f.write('%s\n' % line)
-    conn.close()
-    bot.send_document(message.chat.id, open('export_frime.csv', 'rb'), caption="Дамп базы данных")
-    log_action(ADMIN_ID, 'export_db')
 
 @bot.message_handler(func=lambda m: m.text == get_text(m.from_user.id, 'request_edit'))
 def request_edit(message):
@@ -1064,6 +1282,43 @@ def process_edit_request(message, maker_id):
 @bot.message_handler(func=lambda m: m.text == "🔙 Выйти" and is_admin(m.from_user.id))
 def exit_admin(message):
     bot.send_message(message.chat.id, "Вы вышли из админ-панели.", reply_markup=main_menu_markup(message.from_user.id))
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('social_'))
+def show_social_links(call):
+    maker_id = int(call.data.split('_')[1])
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute("SELECT social_telegram, social_twitter, social_pinterest, social_tiktok, social_youtube, social_instagram, social_vk, social_max FROM skin_makers WHERE id=?", (maker_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        bot.answer_callback_query(call.id, "Нет данных")
+        return
+
+    links = []
+    if row[0]: links.append(("📨 Telegram", row[0]))
+    if row[1]: links.append(("𝕏 Twitter", row[1]))
+    if row[2]: links.append(("📌 Pinterest", row[2]))
+    if row[3]: links.append(("🎵 TikTok", row[3]))
+    if row[4]: links.append(("▶️ YouTube", row[4]))
+    if row[5]: links.append(("📷 Instagram", row[5]))
+    if row[6]: links.append(("💙 VK", row[6]))
+    if row[7]: links.append(("🔶 Max (не рекомендуем)", row[7]))
+
+    if not links:
+        bot.answer_callback_query(call.id, "Соцсети не указаны")
+        return
+
+    markup = types.InlineKeyboardMarkup()
+    for name, url in links:
+        markup.add(types.InlineKeyboardButton(name, url=url))
+    markup.add(types.InlineKeyboardButton("🔙 Закрыть", callback_data='close_social'))
+
+    bot.send_message(call.message.chat.id, "🌐 Социальные сети скинмейкера:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data == 'close_social')
+def close_social(call):
+    bot.delete_message(call.message.chat.id, call.message.message_id)
 
 def check_achievements():
     while True:
