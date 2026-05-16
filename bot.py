@@ -1,4 +1,4 @@
-# Frime Skin Bot — Финальная версия (все функции)
+# Frime Skin Bot — Полная финальная версия (все функции, все исправления)
 # Для запуска: pip install pyTelegramBotAPI
 import telebot
 from telebot import types
@@ -19,7 +19,7 @@ if PROXY:
     apihelper.proxy = {'https': PROXY}
 
 bot = telebot.TeleBot(TOKEN)
-bot.current_makers = []   # инициализация списка
+bot.current_makers = []
 
 # ---------- БАЗА ДАННЫХ ----------
 def init_db():
@@ -179,7 +179,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ---------- ДАННЫЕ СТРАН И ФЛАГОВ ----------
+# ---------- ДАННЫЕ СТРАН И ФЛАГОВ (30) ----------
 countries = {
     'RU': 'Россия', 'US': 'США', 'DE': 'Германия', 'UA': 'Украина', 'BY': 'Беларусь',
     'KZ': 'Казахстан', 'FR': 'Франция', 'GB': 'Великобритания', 'CA': 'Канада',
@@ -391,7 +391,15 @@ def show_card(chat_id, index):
         nav_buttons.append(types.InlineKeyboardButton("➡️ Вперед", callback_data=f'nav_{index+1}'))
     markup.row(*nav_buttons)
     if maker[29]:
-        markup.row(types.InlineKeyboardButton("✉️ Заказ", url=maker[29]))
+        url = maker[29].strip()
+        if not url.startswith('http'):
+            if url.startswith('@'):
+                url = f"https://t.me/{url[1:]}"
+            elif url.startswith('t.me/'):
+                url = f"https://{url}"
+            else:
+                url = f"https://t.me/{url}"
+        markup.row(types.InlineKeyboardButton("✉️ Заказ", url=url))
     markup.row(
         types.InlineKeyboardButton("⭐ Оценить", callback_data=f'rate_{maker[0]}'),
         types.InlineKeyboardButton("📝 Отзывы", callback_data=f'reviews_{maker[0]}'),
@@ -406,7 +414,7 @@ def show_card(chat_id, index):
     else:
         bot.send_message(chat_id, text, reply_markup=markup)
 
-# ---------- НАВИГАЦИЯ (ИСПРАВЛЕНА) ----------
+# ---------- НАВИГАЦИЯ ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith('nav_'))
 def nav_cards(call):
     try:
@@ -570,7 +578,7 @@ def show_social_links(call):
 def close_social(call):
     bot.delete_message(call.message.chat.id, call.message.message_id)
 
-# ---------- ЗАКЛАДКИ (С УПРАВЛЕНИЕМ ПАПКАМИ) ----------
+# ---------- ЗАКЛАДКИ ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith('bookmark_'))
 def bookmark_maker(call):
     maker_id = int(call.data.split('_')[1])
@@ -666,7 +674,7 @@ def profile_main(message):
     maker = c.fetchone()
     conn.close()
     if not maker:
-        bot.send_message(message.chat.id, "Вы не зарегистрированы как скинмейкер. Подайте заявку или ожидайте одобрения.")
+        bot.send_message(message.chat.id, "Вы не зарегистрированы как скинмейкер. Подайте заявку или дождитесь её одобрения.")
         return
     bot.current_profile_maker_id = maker[0]
     text = "👤 Ваш профиль:\n\n"
@@ -846,7 +854,7 @@ def process_edit_request(message, maker_id):
     bot.send_message(message.chat.id, "Запрос отправлен администратору.")
     notify_admins(f"📩 Запрос правок от скинмейкера ID{maker_id}: {message.text}")
 
-# ---------- ПОДАЧА ЗАЯВКИ (ПОЛНЫЙ ДИАЛОГ) ----------
+# ---------- ПОДАЧА ЗАЯВКИ ----------
 user_states = {}
 
 @bot.message_handler(func=lambda m: m.text == "📝 Подать заявку")
@@ -1028,7 +1036,7 @@ def process_apply_social(message):
     bot.send_message(message.chat.id, "✅ Заявка отправлена! Ожидайте одобрения администратором.")
     notify_admins(f"📋 Новая заявка от @{message.from_user.username}")
 
-# ---------- АДМИН-КОМАНДЫ (ВСЕ) ----------
+# ---------- ЗАЯВКИ (АДМИНКА) ----------
 @bot.message_handler(commands=['admin_applications'])
 def admin_applications_cmd(message):
     if not is_admin(message.from_user.id):
@@ -1117,6 +1125,7 @@ def reject_app(call):
     bot.send_message(call.message.chat.id, f"Заявка #{app_id} отклонена.")
     log_action(call.from_user.id, 'reject_application', f'App #{app_id}')
 
+# ---------- АДМИН-КОМАНДЫ ----------
 @bot.message_handler(commands=['admin_all_makers'])
 def admin_all_makers_cmd(message):
     if not is_admin(message.from_user.id):
@@ -1164,24 +1173,32 @@ def announce_button(message):
 
 def process_announce_text(message):
     text = message.text
-    msg = bot.send_message(message.chat.id, "Прикрепите фото (или отправьте '-' чтобы пропустить):")
+    msg = bot.send_message(message.chat.id, "Прикрепите фото (или отправьте /stop чтобы завершить без фото):")
     bot.register_next_step_handler(msg, process_announce_photo, text)
 
 def process_announce_photo(message, text):
     photo_id = None
     if message.content_type == 'photo':
         photo_id = message.photo[-1].file_id
-    elif message.text and message.text.strip() != '-':
-        bot.send_message(message.chat.id, "Отправьте фото или '-' чтобы пропустить.")
-        bot.register_next_step_handler(message, process_announce_photo, text)
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("INSERT INTO announcements (text, photo_id) VALUES (?,?)", (text, photo_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "Объявление создано.")
+        log_action(message.from_user.id, 'create_announcement')
+    elif message.text and message.text.strip() == '/stop':
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("INSERT INTO announcements (text, photo_id) VALUES (?,?)", (text, None))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "Объявление создано (без фото).")
+        log_action(message.from_user.id, 'create_announcement')
+    else:
+        msg = bot.send_message(message.chat.id, "Отправьте фото или /stop чтобы завершить без фото.")
+        bot.register_next_step_handler(msg, process_announce_photo, text)
         return
-    conn = sqlite3.connect('firme_skin.db')
-    c = conn.cursor()
-    c.execute("INSERT INTO announcements (text, photo_id) VALUES (?,?)", (text, photo_id))
-    conn.commit()
-    conn.close()
-    bot.send_message(message.chat.id, "Объявление создано.")
-    log_action(message.from_user.id, 'create_announcement')
 
 @bot.message_handler(commands=['admin_export'])
 def admin_export_cmd(message):
@@ -1363,6 +1380,10 @@ def list_admins_cmd(message):
     text += "👥 Дополнительные администраторы:\n" + ("\n".join(map(str, admins)) if admins else "нет")
     bot.send_message(message.chat.id, text)
 
+@bot.message_handler(func=lambda m: m.text == "👥 Управление админами" and is_main_admin(m.from_user.id))
+def manage_admins_menu(message):
+    bot.send_message(message.chat.id, "Используйте команды:\n/add_admin <id> — добавить\n/remove_admin <id> — удалить\n/list_admins — список")
+
 # ---------- ОЦЕНКИ (С ЗАЩИТОЙ ОТ ПОВТОРНЫХ ОЦЕНОК) ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith('rate_'))
 def rate_start(call):
@@ -1378,7 +1399,6 @@ def rate_start(call):
     if is_blacklisted(call.from_user.id):
         bot.answer_callback_query(call.id, "Вы заблокированы.")
         return
-    # Проверим, есть ли уже оценка от этого пользователя
     conn = sqlite3.connect('firme_skin.db')
     c = conn.cursor()
     c.execute("SELECT id FROM ratings WHERE skin_maker_id=? AND user_id=?", (maker_id, call.from_user.id))
@@ -1442,7 +1462,6 @@ def save_rating(message, maker_id, user_id, avg, q, s, c_val, reason=None):
         reason = message.text
     conn = sqlite3.connect('firme_skin.db')
     c = conn.cursor()
-    # Удалим старую оценку, если была
     c.execute("DELETE FROM ratings WHERE skin_maker_id=? AND user_id=?", (maker_id, user_id))
     c.execute("INSERT INTO ratings (skin_maker_id, user_id, rating, quality, speed, communication, reason) VALUES (?,?,?,?,?,?,?)",
               (maker_id, user_id, avg, q, s, c_val, reason))
@@ -1454,7 +1473,7 @@ def save_rating(message, maker_id, user_id, avg, q, s, c_val, reason=None):
     if avg <= 2.5:
         notify_admins(f"⚠️ Низкая оценка ({avg}) мастеру ID{maker_id} от @{message.from_user.username}\nПричина: {reason}")
 
-# ---------- ОТЗЫВЫ (оставлены как есть) ----------
+# ---------- ОТЗЫВЫ ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith('reviews_'))
 def show_reviews(call):
     maker_id = int(call.data.split('_')[1])
