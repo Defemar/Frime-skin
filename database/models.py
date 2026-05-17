@@ -293,7 +293,7 @@ def show_applications(chat_id, bot, username_by_id):
         if app[23]: soc.append(f"🔶 Max: {app[23]}")
         if soc:
             text += "🌐 Соцсети:\n" + "\n".join(soc) + "\n"
-        text += f"\nОтправитель: {username_by_id(app[1])}"
+        text += f"\nОтправитель: {username_by_id(bot, app[1])}"
         photos = json.loads(app[9]) if app[9] else []
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("✅ Принять", callback_data=f'approve_{app[0]}'),
