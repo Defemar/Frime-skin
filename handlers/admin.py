@@ -39,14 +39,14 @@ def get_maker_field(maker_id, field):
 
 def register_admin_handlers(bot):
 
-    # ===== ГЛАВНОЕ АДМИН-МЕНЮ =====
+    # ===================== ГЛАВНОЕ МЕНЮ =====================
     @bot.message_handler(commands=['admin'])
     def admin_cmd(message):
         if not is_admin(message.from_user.id):
             return
         bot.send_message(message.chat.id, "🔐 Админ-панель", reply_markup=admin_panel_markup())
 
-    # ===== ЗАЯВКИ =====
+    # ===================== ЗАЯВКИ =====================
     @bot.message_handler(func=lambda m: m.text == "📋 Заявки" and is_admin(m.from_user.id))
     def admin_applications_button(message):
         show_applications(message.chat.id, bot, username_by_id)
@@ -82,7 +82,7 @@ def register_admin_handlers(bot):
         if app[23]: soc.append(f"🔶 Max: {app[23]}")
         if soc:
             text += "🌐 Соцсети:\n" + "\n".join(soc) + "\n"
-        text += f"\nОтправитель: {username_by_id(app[1])}"
+        text += f"\nОтправитель: {username_by_id(bot, app[1])}"
         photos = json.loads(app[9]) if app[9] else []
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("✅ Принять", callback_data=f'approve_{app[0]}'),
@@ -100,7 +100,7 @@ def register_admin_handlers(bot):
         if not app:
             bot.answer_callback_query(call.id, "Заявка не найдена.")
             return
-        bot.send_message(call.message.chat.id, f"Свяжитесь с заявителем: {username_by_id(app[1])}\nОбъясните причину несоответствия.")
+        bot.send_message(call.message.chat.id, f"Свяжитесь с заявителем: {username_by_id(bot, app[1])}\nОбъясните причину несоответствия.")
         bot.answer_callback_query(call.id, "Контакт отправлен в чат.")
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('approve_'))
@@ -143,7 +143,7 @@ def register_admin_handlers(bot):
         bot.send_message(call.message.chat.id, f"❌ Заявка #{app_id} отклонена.")
         log_action(call.from_user.id, 'reject_application', f'App #{app_id}')
 
-    # ===== СКИНМЕЙКЕРЫ (СПИСОК) =====
+    # ===================== СКИНМЕЙКЕРЫ (СПИСОК) =====================
     @bot.message_handler(func=lambda m: m.text == "👥 Скинмейкеры" and is_admin(m.from_user.id))
     def admin_makers_button(message):
         conn = sqlite3.connect('firme_skin.db')
@@ -156,11 +156,11 @@ def register_admin_handlers(bot):
             return
         text = "👥 Скинмейкеры:\n\n"
         for m in makers:
-            username = username_by_id(m[2])
+            username = username_by_id(bot, m[2])
             text += f"ID{m[0]} {m[1]} ({username})\n⭐{(m[3] or 5.0):.1f} | Активен:{'✅' if m[4] else '❌'} | Жалобы:{m[5]} | Теневой:{'⚠️' if m[6] else '✅'}\n\n"
         bot.send_message(message.chat.id, text[:4000])
 
-    # ===== СТАТИСТИКА =====
+    # ===================== СТАТИСТИКА =====================
     @bot.message_handler(func=lambda m: m.text == "📊 Статистика" and is_admin(m.from_user.id))
     def admin_stats_button(message):
         conn = sqlite3.connect('firme_skin.db')
@@ -177,7 +177,7 @@ def register_admin_handlers(bot):
         text = f"📊 Статистика:\n\n• Скинмейкеров: {makers_count} (активных: {active_makers})\n• Заявок ожидает: {pending}\n• Отзывов: {reviews_count}\n• Оценок: {ratings_count}\n• Средний рейтинг: {avg_rating:.1f}\n• В чёрном списке: {blacklist_count}\n• Администраторов: {admins_count}"
         bot.send_message(message.chat.id, text)
 
-    # ===== ОБЪЯВЛЕНИЯ =====
+    # ===================== ОБЪЯВЛЕНИЯ =====================
     @bot.message_handler(func=lambda m: m.text == "📢 Объявления" and is_admin(m.from_user.id))
     def admin_announce_menu(message):
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -234,7 +234,7 @@ def register_admin_handlers(bot):
         conn.close()
         bot.send_message(call.message.chat.id, "✅ Удалено.")
 
-    # ===== ЭКСПОРТ И СОХРАНЕНИЕ БД =====
+    # ===================== ЭКСПОРТ И СОХРАНЕНИЕ БД =====================
     @bot.message_handler(func=lambda m: m.text == "📤 Экспорт БД" and is_admin(m.from_user.id))
     def admin_export_button(message):
         conn = sqlite3.connect('firme_skin.db')
@@ -252,7 +252,7 @@ def register_admin_handlers(bot):
         bot.send_document(message.chat.id, open(backup_name, 'rb'), caption="✅ База сохранена.")
         log_action(message.from_user.id, 'save_db')
 
-    # ===== ТЕНЕВОЙ БАН =====
+    # ===================== ТЕНЕВОЙ БАН =====================
     @bot.message_handler(func=lambda m: m.text == "⛔ Теневой бан" and is_admin(m.from_user.id))
     def admin_shadow_menu(message):
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -267,10 +267,8 @@ def register_admin_handlers(bot):
         bot.register_next_step_handler(call.message, process_apply_shadow)
 
     def process_apply_shadow(message):
-        try:
-            maker_id = int(message.text)
-        except:
-            bot.send_message(message.chat.id, "ID должен быть числом."); return
+        try: maker_id = int(message.text)
+        except: bot.send_message(message.chat.id, "ID должен быть числом."); return
         old = get_maker_field(maker_id, 'shadow_banned')
         safe_update_field(maker_id, 'shadow_banned', 1)
         bot.send_message(message.chat.id, f"✅ Теневой бан применён к ID {maker_id}")
@@ -282,10 +280,8 @@ def register_admin_handlers(bot):
         bot.register_next_step_handler(call.message, process_remove_shadow)
 
     def process_remove_shadow(message):
-        try:
-            maker_id = int(message.text)
-        except:
-            bot.send_message(message.chat.id, "ID должен быть числом."); return
+        try: maker_id = int(message.text)
+        except: bot.send_message(message.chat.id, "ID должен быть числом."); return
         old = get_maker_field(maker_id, 'shadow_banned')
         safe_update_field(maker_id, 'shadow_banned', 0)
         bot.send_message(message.chat.id, f"✅ Теневой бан снят с ID {maker_id}")
@@ -304,7 +300,7 @@ def register_admin_handlers(bot):
         text = "⛔ Теневой бан:\n" + "\n".join([f"ID{m[0]} — {m[1]}" for m in makers])
         bot.send_message(call.message.chat.id, text)
 
-    # ===== ЧЁРНЫЙ СПИСОК =====
+    # ===================== ЧЁРНЫЙ СПИСОК =====================
     @bot.message_handler(func=lambda m: m.text == "🚫 Чёрный список" and is_admin(m.from_user.id))
     def admin_blacklist_menu(message):
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -319,10 +315,8 @@ def register_admin_handlers(bot):
         bot.register_next_step_handler(call.message, process_blacklist_add)
 
     def process_blacklist_add(message):
-        try:
-            user_id = int(message.text)
-        except:
-            bot.send_message(message.chat.id, "ID должен быть числом."); return
+        try: user_id = int(message.text)
+        except: bot.send_message(message.chat.id, "ID должен быть числом."); return
         conn = sqlite3.connect('firme_skin.db')
         c = conn.cursor()
         c.execute("INSERT OR IGNORE INTO blacklist (user_id) VALUES (?)", (user_id,))
@@ -337,10 +331,8 @@ def register_admin_handlers(bot):
         bot.register_next_step_handler(call.message, process_blacklist_remove)
 
     def process_blacklist_remove(message):
-        try:
-            user_id = int(message.text)
-        except:
-            bot.send_message(message.chat.id, "ID должен быть числом."); return
+        try: user_id = int(message.text)
+        except: bot.send_message(message.chat.id, "ID должен быть числом."); return
         conn = sqlite3.connect('firme_skin.db')
         c = conn.cursor()
         c.execute("DELETE FROM blacklist WHERE user_id=?", (user_id,))
@@ -362,7 +354,7 @@ def register_admin_handlers(bot):
         text = "🚫 Заблокированные:\n" + "\n".join(map(str, users))
         bot.send_message(call.message.chat.id, text)
 
-    # ===== УПРАВЛЕНИЕ АДМИНАМИ =====
+    # ===================== УПРАВЛЕНИЕ АДМИНАМИ =====================
     @bot.message_handler(func=lambda m: m.text == "👑 Админы" and is_admin(m.from_user.id))
     def admin_admins_menu(message):
         conn = sqlite3.connect('firme_skin.db')
@@ -386,10 +378,8 @@ def register_admin_handlers(bot):
         bot.register_next_step_handler(call.message, process_add_admin)
 
     def process_add_admin(message):
-        try:
-            new_id = int(message.text)
-        except:
-            bot.send_message(message.chat.id, "ID должен быть числом."); return
+        try: new_id = int(message.text)
+        except: bot.send_message(message.chat.id, "ID должен быть числом."); return
         from config import ADMIN_ID
         if new_id == ADMIN_ID:
             bot.send_message(message.chat.id, "Это главный админ."); return
@@ -408,10 +398,8 @@ def register_admin_handlers(bot):
         bot.register_next_step_handler(call.message, process_remove_admin)
 
     def process_remove_admin(message):
-        try:
-            admin_id = int(message.text)
-        except:
-            bot.send_message(message.chat.id, "ID должен быть числом."); return
+        try: admin_id = int(message.text)
+        except: bot.send_message(message.chat.id, "ID должен быть числом."); return
         from config import ADMIN_ID
         if admin_id == ADMIN_ID:
             bot.send_message(message.chat.id, "Нельзя удалить главного админа."); return
@@ -424,7 +412,7 @@ def register_admin_handlers(bot):
         bot.send_message(admin_id, "⚠️ Ваши права админа отозваны.")
         log_action(message.from_user.id, 'remove_admin', f'Removed {admin_id}')
 
-    # ===== ДОБАВЛЕНИЕ СКИНМЕЙКЕРА ВРУЧНУЮ =====
+    # ===================== ДОБАВЛЕНИЕ СКИНМЕЙКЕРА ВРУЧНУЮ =====================
     @bot.message_handler(func=lambda m: m.text == "➕ Добавить скинмейкера" and is_admin(m.from_user.id))
     def admin_add_maker_button(message):
         bot.send_message(message.chat.id, "Введите @username или ID:")
@@ -440,8 +428,7 @@ def register_admin_handlers(bot):
                 u = bot.get_chat(f"@{txt}")
                 user_id = u.id
                 username = u.username
-            except:
-                pass
+            except: pass
         if not user_id:
             bot.send_message(message.chat.id, "Пользователь не найден.")
             return
@@ -460,41 +447,35 @@ def register_admin_handlers(bot):
         bot.register_next_step_handler(message, process_new_maker_price_min)
 
     def process_new_maker_price_min(message):
-        try:
-            pmin = int(message.text)
-            admin_temp_data[message.chat.id]['price_min'] = pmin
-            bot.send_message(message.chat.id, "Введите максимальную цену:")
-            bot.register_next_step_handler(message, process_new_maker_price_max)
-        except:
-            bot.send_message(message.chat.id, "❌ Введите число."); return
+        try: pmin = int(message.text)
+        except: bot.send_message(message.chat.id, "❌ Введите число."); return
+        admin_temp_data[message.chat.id]['price_min'] = pmin
+        bot.send_message(message.chat.id, "Введите максимальную цену:")
+        bot.register_next_step_handler(message, process_new_maker_price_max)
 
     def process_new_maker_price_max(message):
-        try:
-            pmax = int(message.text)
-            data = admin_temp_data.pop(message.chat.id)
-            conn = sqlite3.connect('firme_skin.db')
-            c = conn.cursor()
-            c.execute('''INSERT INTO skin_makers (user_id, username, name, description, price, price_min, price_max)
-                         VALUES (?,?,?,?,?,?,?)''',
-                      (data['user_id'], data['username'], data['name'], data['desc'], pmax, data['price_min'], pmax))
-            conn.commit()
-            conn.close()
-            bot.send_message(message.chat.id, "✅ Скинмейкер добавлен.")
-            log_action(message.from_user.id, 'add_maker', f'User {data["user_id"]}')
-        except:
-            bot.send_message(message.chat.id, "❌ Введите число."); return
+        try: pmax = int(message.text)
+        except: bot.send_message(message.chat.id, "❌ Введите число."); return
+        data = admin_temp_data.pop(message.chat.id)
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute('''INSERT INTO skin_makers (user_id, username, name, description, price, price_min, price_max)
+                     VALUES (?,?,?,?,?,?,?)''',
+                  (data['user_id'], data['username'], data['name'], data['desc'], pmax, data['price_min'], pmax))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "✅ Скинмейкер добавлен.")
+        log_action(message.from_user.id, 'add_maker', f'User {data["user_id"]}')
 
-    # ===== РЕДАКТИРОВАНИЕ СКИНМЕЙКЕРА =====
+    # ===================== РЕДАКТИРОВАНИЕ СКИНМЕЙКЕРА =====================
     @bot.message_handler(func=lambda m: m.text == "🔧 Ред. скинмейкера" and is_admin(m.from_user.id))
     def admin_edit_maker_button(message):
         bot.send_message(message.chat.id, "Введите ID:")
         bot.register_next_step_handler(message, process_admin_edit_maker)
 
     def process_admin_edit_maker(message):
-        try:
-            maker_id = int(message.text)
-        except:
-            bot.send_message(message.chat.id, "ID должен быть числом."); return
+        try: maker_id = int(message.text)
+        except: bot.send_message(message.chat.id, "ID должен быть числом."); return
         conn = sqlite3.connect('firme_skin.db')
         c = conn.cursor()
         c.execute("SELECT * FROM skin_makers WHERE id=?", (maker_id,))
@@ -680,7 +661,7 @@ def register_admin_handlers(bot):
     def cancel_delete(call):
         bot.edit_message_text("❌ Удаление отменено.", call.message.chat.id, call.message.message_id)
 
-    # ===== ЛОГ =====
+    # ===================== ЛОГ =====================
     @bot.message_handler(func=lambda m: m.text == "📝 Лог" and is_admin(m.from_user.id))
     def admin_log_button(message):
         conn = sqlite3.connect('firme_skin.db')
@@ -694,7 +675,7 @@ def register_admin_handlers(bot):
         text = "📝 Лог:\n\n" + "\n".join([f"{l[3][:19]} — {l[2]}" for l in logs])
         bot.send_message(message.chat.id, text[:4000])
 
-    # ===== ПЕРЕСЧЁТ РЕЙТИНГА =====
+    # ===================== ПЕРЕСЧЁТ РЕЙТИНГА =====================
     @bot.message_handler(func=lambda m: m.text == "🔄 Пересчитать рейтинг" and is_admin(m.from_user.id))
     def admin_recalc_all_ratings(message):
         conn = sqlite3.connect('firme_skin.db')
@@ -715,7 +696,7 @@ def register_admin_handlers(bot):
         bot.send_message(message.chat.id, "✅ Рейтинг пересчитан для всех скинмейкеров.")
         log_action(message.from_user.id, 'recalc_all_ratings')
 
-    # ===== ОЧИСТКА СТАРЫХ ЗАЯВОК =====
+    # ===================== ОЧИСТКА СТАРЫХ ЗАЯВОК =====================
     @bot.message_handler(func=lambda m: m.text == "🗂️ Очистить старые заявки" and is_admin(m.from_user.id))
     def admin_clean_applications(message):
         conn = sqlite3.connect('firme_skin.db')
@@ -727,22 +708,20 @@ def register_admin_handlers(bot):
         bot.send_message(message.chat.id, f"✅ Удалено {deleted} обработанных заявок.")
         log_action(message.from_user.id, 'clean_applications', f'Deleted {deleted}')
 
-    # ===== ВЫХОД ИЗ АДМИНКИ =====
+    # ===================== ВЫХОД ИЗ АДМИНКИ =====================
     @bot.message_handler(func=lambda m: m.text == "🔙 Выйти" and is_admin(m.from_user.id))
     def exit_admin(message):
         bot.send_message(message.chat.id, "Вы вышли из админ-панели.", reply_markup=main_menu_markup())
 
-    # ===== УПРАВЛЕНИЕ ОЦЕНКАМИ =====
+    # ===================== УПРАВЛЕНИЕ ОЦЕНКАМИ =====================
     @bot.message_handler(func=lambda m: m.text == "⭐ Управление оценками" and is_admin(m.from_user.id))
     def admin_ratings_menu_button(message):
         bot.send_message(message.chat.id, "Введите ID скинмейкера для просмотра его оценок:")
         bot.register_next_step_handler(message, process_admin_ratings)
 
     def process_admin_ratings(message):
-        try:
-            maker_id = int(message.text)
-        except:
-            bot.send_message(message.chat.id, "ID должен быть числом."); return
+        try: maker_id = int(message.text)
+        except: bot.send_message(message.chat.id, "ID должен быть числом."); return
         conn = sqlite3.connect('firme_skin.db')
         c = conn.cursor()
         c.execute('''SELECT r.id, r.rating, r.quality, r.speed, r.communication, r.reason, r.user_id, r.date 
@@ -756,8 +735,7 @@ def register_admin_handlers(bot):
         text = f"📊 Оценки скинмейкера ID{maker_id}:\n\n"
         for r in ratings:
             text += f"ID оценки: {r[0]}\n⭐ Общая: {r[1]:.1f} | К:{r[2]} С:{r[3]} О:{r[4]}\n"
-            if r[5]:
-                text += f"💬 {r[5]}\n"
+            if r[5]: text += f"💬 {r[5]}\n"
             text += f"👤 ID{r[6]} | 📅 {r[7][:10]}\n\n"
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(types.InlineKeyboardButton("🗑️ Удалить оценку по ID", callback_data=f'delete_rating_menu_{maker_id}'),
@@ -771,10 +749,8 @@ def register_admin_handlers(bot):
         bot.register_next_step_handler(call.message, process_delete_rating, maker_id)
 
     def process_delete_rating(message, maker_id):
-        try:
-            rating_id = int(message.text)
-        except:
-            bot.send_message(message.chat.id, "ID должен быть числом."); return
+        try: rating_id = int(message.text)
+        except: bot.send_message(message.chat.id, "ID должен быть числом."); return
         conn = sqlite3.connect('firme_skin.db')
         c = conn.cursor()
         c.execute("UPDATE ratings SET is_removed=1 WHERE id=? AND skin_maker_id=?", (rating_id, maker_id))
@@ -796,7 +772,7 @@ def register_admin_handlers(bot):
         conn.close()
         bot.send_message(call.message.chat.id, f"✅ Рейтинг пересчитан. Новый: {new_data[0]:.1f} (оценок: {new_data[1]})")
 
-    # ===== ЗАПРОСЫ ПРАВОК =====
+    # ===================== ЗАПРОСЫ ПРАВОК =====================
     @bot.message_handler(func=lambda m: m.text == "✏️ Запросы правок" and is_admin(m.from_user.id))
     def admin_edit_requests_button(message):
         conn = sqlite3.connect('firme_skin.db')
