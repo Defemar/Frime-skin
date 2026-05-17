@@ -3,10 +3,39 @@ import json
 import shutil
 from datetime import datetime
 from telebot import types
-from database.models import show_applications, log_action, get_makers_by_filter, format_maker_card
+from database.models import show_applications, log_action
 from utils.keyboards import main_menu_markup, admin_panel_markup
-from utils.helpers import is_admin, is_main_admin, is_blacklisted, username_by_id, notify_admins
+from utils.helpers import is_admin, is_main_admin, username_by_id, notify_admins
 import re
+
+admin_temp_data = {}
+
+ALLOWED_FIELDS = {
+    'name', 'description', 'price', 'price_min', 'price_max',
+    'style', 'services', 'country_code', 'custom_emoji',
+    'contact_link', 'display_experience', 'order_display',
+    'completed_orders', 'orders_confirmed', 'delivery_min_days',
+    'delivery_max_days', 'is_active', 'shadow_banned'
+}
+
+def safe_update_field(maker_id, field, value):
+    if field not in ALLOWED_FIELDS:
+        raise ValueError(f"Недопустимое поле: {field}")
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute(f"UPDATE skin_makers SET {field}=? WHERE id=?", (value, maker_id))
+    conn.commit()
+    conn.close()
+
+def get_maker_field(maker_id, field):
+    if field not in ALLOWED_FIELDS:
+        raise ValueError(f"Недопустимое поле: {field}")
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute(f"SELECT {field} FROM skin_makers WHERE id=?", (maker_id,))
+    result = c.fetchone()
+    conn.close()
+    return result[0] if result else None
 
 def register_admin_handlers(bot):
 
@@ -35,6 +64,10 @@ def register_admin_handlers(bot):
         c = conn.cursor()
         c.execute("SELECT * FROM applications WHERE id=?", (app_id,))
         app = c.fetchone()
+        if not app:
+            bot.answer_callback_query(call.id, "Заявка не найдена.")
+            conn.close()
+            return
         c.execute('''INSERT INTO skin_makers
             (user_id, username, name, description, price, price_min, price_max,
              services, photo_ids, style, contact_link, social_telegram, social_twitter,
@@ -49,7 +82,7 @@ def register_admin_handlers(bot):
         conn.close()
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
         bot.send_message(call.message.chat.id, f"✅ Заявка #{app_id} одобрена.")
-        bot.send_message(app[1], "🎉 Ваша заявка принята!")
+        bot.send_message(app[1], "🎉 Ваша заявка принята! Теперь вы в списке скинмейкеров.")
         log_action(call.from_user.id, 'approve_application', f'App #{app_id}')
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('reject_'))
@@ -91,7 +124,7 @@ def register_admin_handlers(bot):
         c.execute("SELECT COUNT(*) FROM applications WHERE status='pending'"); pending = c.fetchone()[0]
         c.execute("SELECT COUNT(*) FROM reviews"); reviews_count = c.fetchone()[0]
         c.execute("SELECT COUNT(*) FROM ratings"); ratings_count = c.fetchone()[0]
-        c.execute("SELECT AVG(rating) FROM skin_makers"); avg_rating = c.fetchone()[0] or 0
+        c.execute("SELECT AVG(COALESCE(rating, 5.0)) FROM skin_makers"); avg_rating = c.fetchone()[0] or 0
         c.execute("SELECT COUNT(*) FROM blacklist"); blacklist_count = c.fetchone()[0]
         c.execute("SELECT COUNT(*) FROM admins"); admins_count = c.fetchone()[0]
         conn.close()
@@ -192,13 +225,10 @@ def register_admin_handlers(bot):
             maker_id = int(message.text)
         except:
             bot.send_message(message.chat.id, "ID должен быть числом."); return
-        conn = sqlite3.connect('firme_skin.db')
-        c = conn.cursor()
-        c.execute("UPDATE skin_makers SET shadow_banned=1 WHERE id=?", (maker_id,))
-        conn.commit()
-        conn.close()
+        old = get_maker_field(maker_id, 'shadow_banned')
+        safe_update_field(maker_id, 'shadow_banned', 1)
         bot.send_message(message.chat.id, f"✅ Теневой бан применён к ID {maker_id}")
-        log_action(message.from_user.id, 'shadow_ban', f'Maker {maker_id}')
+        log_action(message.from_user.id, 'shadow_ban', f'Maker {maker_id}, old: {old}, new: 1')
 
     @bot.callback_query_handler(func=lambda call: call.data == 'remove_shadow')
     def remove_shadow_cb(call):
@@ -210,13 +240,10 @@ def register_admin_handlers(bot):
             maker_id = int(message.text)
         except:
             bot.send_message(message.chat.id, "ID должен быть числом."); return
-        conn = sqlite3.connect('firme_skin.db')
-        c = conn.cursor()
-        c.execute("UPDATE skin_makers SET shadow_banned=0 WHERE id=?", (maker_id,))
-        conn.commit()
-        conn.close()
+        old = get_maker_field(maker_id, 'shadow_banned')
+        safe_update_field(maker_id, 'shadow_banned', 0)
         bot.send_message(message.chat.id, f"✅ Теневой бан снят с ID {maker_id}")
-        log_action(message.from_user.id, 'unshadow', f'Maker {maker_id}')
+        log_action(message.from_user.id, 'unshadow', f'Maker {maker_id}, old: {old}, new: 0')
 
     @bot.callback_query_handler(func=lambda call: call.data == 'list_shadow')
     def list_shadow_cb(call):
@@ -297,6 +324,7 @@ def register_admin_handlers(bot):
         c.execute("SELECT user_id FROM admins")
         admins = [row[0] for row in c.fetchall()]
         conn.close()
+        from config import ADMIN_ID
         text = f"👑 Главный: {ADMIN_ID}\n👥 Доп.: " + (", ".join(map(str, admins)) if admins else "нет")
         if is_main_admin(message.from_user.id):
             markup = types.InlineKeyboardMarkup(row_width=1)
@@ -316,6 +344,7 @@ def register_admin_handlers(bot):
             new_id = int(message.text)
         except:
             bot.send_message(message.chat.id, "ID должен быть числом."); return
+        from config import ADMIN_ID
         if new_id == ADMIN_ID:
             bot.send_message(message.chat.id, "Это главный админ."); return
         conn = sqlite3.connect('firme_skin.db')
@@ -337,6 +366,7 @@ def register_admin_handlers(bot):
             admin_id = int(message.text)
         except:
             bot.send_message(message.chat.id, "ID должен быть числом."); return
+        from config import ADMIN_ID
         if admin_id == ADMIN_ID:
             bot.send_message(message.chat.id, "Нельзя удалить главного админа."); return
         conn = sqlite3.connect('firme_skin.db')
@@ -369,24 +399,24 @@ def register_admin_handlers(bot):
         if not user_id:
             bot.send_message(message.chat.id, "Пользователь не найден.")
             return
-        bot.temp_maker = {'user_id': user_id, 'username': username or ""}
+        admin_temp_data[message.chat.id] = {'user_id': user_id, 'username': username or ""}
         bot.send_message(message.chat.id, "Введите имя:")
         bot.register_next_step_handler(message, process_new_maker_name)
 
     def process_new_maker_name(message):
-        bot.temp_maker['name'] = message.text
+        admin_temp_data[message.chat.id]['name'] = message.text
         bot.send_message(message.chat.id, "Введите описание:")
         bot.register_next_step_handler(message, process_new_maker_desc)
 
     def process_new_maker_desc(message):
-        bot.temp_maker['desc'] = message.text
+        admin_temp_data[message.chat.id]['desc'] = message.text
         bot.send_message(message.chat.id, "Введите минимальную цену:")
         bot.register_next_step_handler(message, process_new_maker_price_min)
 
     def process_new_maker_price_min(message):
         try:
             pmin = int(message.text)
-            bot.temp_maker['price_min'] = pmin
+            admin_temp_data[message.chat.id]['price_min'] = pmin
             bot.send_message(message.chat.id, "Введите максимальную цену:")
             bot.register_next_step_handler(message, process_new_maker_price_max)
         except:
@@ -395,7 +425,7 @@ def register_admin_handlers(bot):
     def process_new_maker_price_max(message):
         try:
             pmax = int(message.text)
-            data = bot.temp_maker
+            data = admin_temp_data.pop(message.chat.id)
             conn = sqlite3.connect('firme_skin.db')
             c = conn.cursor()
             c.execute('''INSERT INTO skin_makers (user_id, username, name, description, price, price_min, price_max)
@@ -427,7 +457,8 @@ def register_admin_handlers(bot):
         if not maker:
             bot.send_message(message.chat.id, "Скинмейкер не найден.")
             return
-        text = f"🔧 ID{maker_id}\nИмя: {maker[3]}\nОписание: {maker[4]}\nЦена: {maker[5]}\nСтиль: {maker[17]}\nУслуги: {maker[8]}\nСтрана: {maker[29]}\nЭмодзи: {maker[28] or 'нет'}\nСсылка: {maker[31] or 'нет'}\nСроки: {maker[19]}–{maker[20]} дн.\nЗаказы: {maker[40] or maker[24]}\nСтаж: {maker[30] or 'авто'}\nАктивен: {'✅' if maker[12] else '❌'}\nТеневой: {'⚠️' if maker[22] else '✅'}"
+        from config import countries, flags
+        text = f"🔧 ID{maker_id}\nИмя: {maker[3]}\nОписание: {maker[4]}\nЦена: {maker[5]}\nСтиль: {maker[17]}\nУслуги: {maker[8]}\nСтрана: {countries.get(maker[29], maker[29])}\nЭмодзи: {maker[28] or 'нет'}\nСсылка: {maker[31] or 'нет'}\nСроки: {maker[19]}–{maker[20]} дн.\nЗаказы: {maker[40] or maker[24]}\nСтаж: {maker[30] or 'авто'}\nАктивен: {'✅' if maker[12] else '❌'}\nТеневой: {'⚠️' if maker[22] else '✅'}"
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(types.InlineKeyboardButton("✏️ Имя", callback_data=f'adm_edit_name_{maker_id}'),
                    types.InlineKeyboardButton("✏️ Описание", callback_data=f'adm_edit_desc_{maker_id}'),
@@ -448,19 +479,19 @@ def register_admin_handlers(bot):
     def adm_edit_name_cb(call):
         mid = int(call.data.split('_')[3])
         bot.send_message(call.message.chat.id, "Введите новое имя:")
-        bot.register_next_step_handler(call.message, lambda m, mid=mid: update_field('name', m.text, mid, m.chat.id))
+        bot.register_next_step_handler(call.message, lambda m, mid=mid: (safe_update_field(mid, 'name', m.text), bot.send_message(m.chat.id, "✅ Имя обновлено.")))
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_edit_desc_'))
     def adm_edit_desc_cb(call):
         mid = int(call.data.split('_')[3])
         bot.send_message(call.message.chat.id, "Введите описание:")
-        bot.register_next_step_handler(call.message, lambda m, mid=mid: update_field('description', m.text, mid, m.chat.id))
+        bot.register_next_step_handler(call.message, lambda m, mid=mid: (safe_update_field(mid, 'description', m.text), bot.send_message(m.chat.id, "✅ Описание обновлено.")))
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_edit_price_'))
     def adm_edit_price_cb(call):
         mid = int(call.data.split('_')[3])
         bot.send_message(call.message.chat.id, "Введите цену:")
-        bot.register_next_step_handler(call.message, lambda m, mid=mid: update_field('price', int(m.text) if m.text.isdigit() else None, mid, m.chat.id))
+        bot.register_next_step_handler(call.message, lambda m, mid=mid: (safe_update_field(mid, 'price', int(m.text)), bot.send_message(m.chat.id, "✅ Цена обновлена.")) if m.text.isdigit() else bot.send_message(m.chat.id, "❌ Введите число."))
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_edit_style_'))
     def adm_edit_style_cb(call):
@@ -473,13 +504,16 @@ def register_admin_handlers(bot):
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_set_style_'))
     def adm_set_style(call):
         _, _, mid, style = call.data.split('_')
-        update_field('style', style, int(mid), call.message.chat.id, call=call)
+        old = get_maker_field(int(mid), 'style')
+        safe_update_field(int(mid), 'style', style)
+        bot.edit_message_text(f"✅ Стиль изменён на {style}", call.message.chat.id, call.message.message_id)
+        log_action(call.from_user.id, 'edit_style', f'Maker {mid}, old: {old}, new: {style}')
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_edit_services_'))
     def adm_edit_services_cb(call):
         mid = int(call.data.split('_')[3])
         bot.send_message(call.message.chat.id, "Введите услуги:")
-        bot.register_next_step_handler(call.message, lambda m, mid=mid: update_field('services', m.text, mid, m.chat.id))
+        bot.register_next_step_handler(call.message, lambda m, mid=mid: (safe_update_field(mid, 'services', m.text), bot.send_message(m.chat.id, "✅ Услуги обновлены.")))
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_edit_country_'))
     def adm_edit_country_cb(call):
@@ -493,44 +527,54 @@ def register_admin_handlers(bot):
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_set_country_'))
     def adm_set_country(call):
         _, _, mid, code = call.data.split('_')
-        update_field('country_code', code, int(mid), call.message.chat.id, call=call)
+        old = get_maker_field(int(mid), 'country_code')
+        safe_update_field(int(mid), 'country_code', code)
+        bot.edit_message_text(f"✅ Страна изменена", call.message.chat.id, call.message.message_id)
+        log_action(call.from_user.id, 'edit_country', f'Maker {mid}, old: {old}, new: {code}')
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_edit_emoji_'))
     def adm_edit_emoji_cb(call):
         mid = int(call.data.split('_')[3])
         bot.send_message(call.message.chat.id, "Отправьте эмодзи:")
-        bot.register_next_step_handler(call.message, lambda m, mid=mid: update_field('custom_emoji', m.text.strip() if m.text.strip() != '-' else None, mid, m.chat.id))
+        bot.register_next_step_handler(call.message, lambda m, mid=mid: (safe_update_field(mid, 'custom_emoji', m.text.strip() if m.text.strip() != '-' else None), bot.send_message(m.chat.id, "✅ Эмодзи обновлён.")))
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_edit_contact_'))
     def adm_edit_contact_cb(call):
         mid = int(call.data.split('_')[3])
         bot.send_message(call.message.chat.id, "Введите ссылку:")
-        bot.register_next_step_handler(call.message, lambda m, mid=mid: update_field('contact_link', m.text.strip(), mid, m.chat.id))
+        bot.register_next_step_handler(call.message, lambda m, mid=mid: (safe_update_field(mid, 'contact_link', m.text.strip()), bot.send_message(m.chat.id, "✅ Ссылка обновлена.")))
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_edit_delivery_'))
     def adm_edit_delivery_cb(call):
         mid = int(call.data.split('_')[3])
         bot.send_message(call.message.chat.id, "Введите мин. срок:")
-        bot.register_next_step_handler(call.message, lambda m, mid=mid: setattr(bot, 'tmp_dmin', int(m.text)) or bot.send_message(m.chat.id, "Введите макс. срок:") or bot.register_next_step_handler(m, lambda m2, mid=mid: update_delivery(mid, bot.tmp_dmin, int(m2.text), m2.chat.id)))
+        bot.register_next_step_handler(call.message, process_delivery_min, mid)
 
-    def update_delivery(mid, dmin, dmax, chat_id):
-        conn = sqlite3.connect('firme_skin.db')
-        c = conn.cursor()
-        c.execute("UPDATE skin_makers SET delivery_min_days=?, delivery_max_days=? WHERE id=?", (dmin, dmax, mid))
-        conn.commit()
-        conn.close()
-        bot.send_message(chat_id, "✅ Сроки обновлены.")
+    def process_delivery_min(message, mid):
+        try:
+            dmin = int(message.text)
+            if dmin < 1: raise ValueError
+        except:
+            bot.send_message(message.chat.id, "❌ Введите целое число >0:")
+            bot.register_next_step_handler(message, process_delivery_min, mid)
+            return
+        bot.send_message(message.chat.id, "Введите макс. срок:")
+        bot.register_next_step_handler(message, process_delivery_max, mid, dmin)
 
-    def update_field(field, value, mid, chat_id, call=None):
-        conn = sqlite3.connect('firme_skin.db')
-        c = conn.cursor()
-        c.execute(f"UPDATE skin_makers SET {field}=? WHERE id=?", (value, mid))
-        conn.commit()
-        conn.close()
-        if call:
-            bot.edit_message_text("✅ Обновлено.", call.message.chat.id, call.message.message_id)
-        else:
-            bot.send_message(chat_id, "✅ Обновлено.")
+    def process_delivery_max(message, mid, dmin):
+        try:
+            dmax = int(message.text)
+            if dmax < dmin: raise ValueError
+        except:
+            bot.send_message(message.chat.id, f"❌ Введите число ≥ {dmin}:")
+            bot.register_next_step_handler(message, process_delivery_max, mid, dmin)
+            return
+        old_min = get_maker_field(mid, 'delivery_min_days')
+        old_max = get_maker_field(mid, 'delivery_max_days')
+        safe_update_field(mid, 'delivery_min_days', dmin)
+        safe_update_field(mid, 'delivery_max_days', dmax)
+        bot.send_message(message.chat.id, f"✅ Сроки обновлены: {dmin}–{dmax} дн.")
+        log_action(message.from_user.id, 'edit_delivery', f'Maker {mid}, old: {old_min}-{old_max}, new: {dmin}-{dmax}')
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_edit_orders_'))
     def adm_edit_orders_cb(call):
@@ -539,46 +583,56 @@ def register_admin_handlers(bot):
         bot.register_next_step_handler(call.message, lambda m, mid=mid: update_orders(mid, m.text, m.chat.id))
 
     def update_orders(mid, val, chat_id):
-        conn = sqlite3.connect('firme_skin.db')
-        c = conn.cursor()
+        old = get_maker_field(mid, 'order_display') or get_maker_field(mid, 'completed_orders')
         if val.isdigit():
-            c.execute("UPDATE skin_makers SET completed_orders=?, orders_confirmed=1, order_display=NULL WHERE id=?", (int(val), mid))
+            safe_update_field(mid, 'completed_orders', int(val))
+            safe_update_field(mid, 'orders_confirmed', 1)
+            safe_update_field(mid, 'order_display', None)
         else:
-            c.execute("UPDATE skin_makers SET order_display=?, orders_confirmed=1 WHERE id=?", (val, mid))
+            safe_update_field(mid, 'order_display', val)
+            safe_update_field(mid, 'orders_confirmed', 1)
             nums = re.findall(r'\d+', val)
             if nums:
-                c.execute("UPDATE skin_makers SET completed_orders=? WHERE id=?", (int(nums[0]), mid))
-        conn.commit()
-        conn.close()
+                safe_update_field(mid, 'completed_orders', int(nums[0]))
         bot.send_message(chat_id, f"✅ Заказы обновлены: {val}")
+        log_action(chat_id, 'edit_orders', f'Maker {mid}, old: {old}, new: {val}')
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_edit_exp_'))
     def adm_edit_exp_cb(call):
         mid = int(call.data.split('_')[3])
         bot.send_message(call.message.chat.id, "Введите стаж:")
-        bot.register_next_step_handler(call.message, lambda m, mid=mid: update_field('display_experience', m.text.strip(), mid, m.chat.id))
+        bot.register_next_step_handler(call.message, lambda m, mid=mid: (safe_update_field(mid, 'display_experience', m.text.strip()), bot.send_message(m.chat.id, "✅ Стаж обновлён.")))
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_toggle_active_'))
     def adm_toggle_active_cb(call):
         mid = int(call.data.split('_')[3])
-        conn = sqlite3.connect('firme_skin.db')
-        c = conn.cursor()
-        c.execute("SELECT is_active FROM skin_makers WHERE id=?", (mid,))
-        state = c.fetchone()[0]
-        c.execute("UPDATE skin_makers SET is_active=? WHERE id=?", (0 if state else 1, mid))
-        conn.commit()
-        conn.close()
-        bot.send_message(call.message.chat.id, f"✅ {'Активирован' if not state else 'Деактивирован'}.")
+        old = get_maker_field(mid, 'is_active')
+        safe_update_field(mid, 'is_active', 0 if old else 1)
+        bot.send_message(call.message.chat.id, f"✅ {'Активирован' if not old else 'Деактивирован'}.")
+        log_action(call.from_user.id, 'toggle_active', f'Maker {mid}, old: {old}, new: {0 if old else 1}')
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('adm_delete_maker_'))
     def adm_delete_maker_cb(call):
         mid = int(call.data.split('_')[3])
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("✅ Да, удалить", callback_data=f'confirm_delete_{mid}'),
+                   types.InlineKeyboardButton("❌ Нет", callback_data='cancel_delete'))
+        bot.send_message(call.message.chat.id, f"⚠️ Точно удалить скинмейкера ID{mid}?", reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_delete_'))
+    def confirm_delete_maker(call):
+        mid = int(call.data.split('_')[2])
         conn = sqlite3.connect('firme_skin.db')
         c = conn.cursor()
         c.execute("DELETE FROM skin_makers WHERE id=?", (mid,))
         conn.commit()
         conn.close()
-        bot.send_message(call.message.chat.id, f"✅ Скинмейкер ID{mid} удалён.")
+        bot.edit_message_text(f"✅ Скинмейкер ID{mid} удалён.", call.message.chat.id, call.message.message_id)
+        log_action(call.from_user.id, 'delete_maker', f'Maker {mid}')
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'cancel_delete')
+    def cancel_delete(call):
+        bot.edit_message_text("❌ Удаление отменено.", call.message.chat.id, call.message.message_id)
 
     # ===== ЛОГ =====
     @bot.message_handler(func=lambda m: m.text == "📝 Лог" and is_admin(m.from_user.id))
@@ -599,13 +653,21 @@ def register_admin_handlers(bot):
     def admin_recalc_all_ratings(message):
         conn = sqlite3.connect('firme_skin.db')
         c = conn.cursor()
-        c.execute("SELECT id FROM skin_makers")
-        makers = [row[0] for row in c.fetchall()]
-        for mid in makers:
-            c.execute("UPDATE skin_makers SET total_ratings=(SELECT COUNT(*) FROM ratings WHERE skin_maker_id=? AND is_removed=0), rating=COALESCE((SELECT AVG(rating) FROM ratings WHERE skin_maker_id=? AND is_removed=0), 5.0) WHERE id=?", (mid, mid, mid))
+        c.execute("""
+            UPDATE skin_makers 
+            SET total_ratings = (
+                SELECT COUNT(*) FROM ratings 
+                WHERE skin_maker_id = skin_makers.id AND is_removed=0
+            ),
+            rating = COALESCE((
+                SELECT AVG(rating) FROM ratings 
+                WHERE skin_maker_id = skin_makers.id AND is_removed=0
+            ), 5.0)
+        """)
         conn.commit()
         conn.close()
-        bot.send_message(message.chat.id, f"✅ Рейтинг пересчитан для {len(makers)} скинмейкеров.")
+        bot.send_message(message.chat.id, "✅ Рейтинг пересчитан для всех скинмейкеров.")
+        log_action(message.from_user.id, 'recalc_all_ratings')
 
     # ===== ОЧИСТКА СТАРЫХ ЗАЯВОК =====
     @bot.message_handler(func=lambda m: m.text == "🗂️ Очистить старые заявки" and is_admin(m.from_user.id))
@@ -617,13 +679,14 @@ def register_admin_handlers(bot):
         conn.commit()
         conn.close()
         bot.send_message(message.chat.id, f"✅ Удалено {deleted} обработанных заявок.")
+        log_action(message.from_user.id, 'clean_applications', f'Deleted {deleted}')
 
     # ===== ВЫХОД ИЗ АДМИНКИ =====
     @bot.message_handler(func=lambda m: m.text == "🔙 Выйти" and is_admin(m.from_user.id))
     def exit_admin(message):
         bot.send_message(message.chat.id, "Вы вышли из админ-панели.", reply_markup=main_menu_markup())
 
-    # ===== УПРАВЛЕНИЕ ОЦЕНКАМИ (АДМИН) =====
+    # ===== УПРАВЛЕНИЕ ОЦЕНКАМИ =====
     @bot.message_handler(func=lambda m: m.text == "⭐ Управление оценками" and is_admin(m.from_user.id))
     def admin_ratings_menu_button(message):
         bot.send_message(message.chat.id, "Введите ID скинмейкера для просмотра его оценок:")
@@ -721,11 +784,12 @@ def register_admin_handlers(bot):
         if 'заказ' in text or 'order' in text:
             if numbers:
                 new_orders = int(numbers[0])
-                c.execute("UPDATE skin_makers SET completed_orders=?, orders_confirmed=1 WHERE id=?", (new_orders, maker_id))
+                safe_update_field(maker_id, 'completed_orders', new_orders)
+                safe_update_field(maker_id, 'orders_confirmed', 1)
                 bot.send_message(maker_id, f"✅ Ваш запрос одобрен. Количество заказов обновлено до {new_orders}.")
         elif 'стаж' in text or 'опыт' in text:
             if 'год' in text or 'лет' in text:
-                c.execute("UPDATE skin_makers SET display_experience=? WHERE id=?", (req[3], maker_id))
+                safe_update_field(maker_id, 'display_experience', req[3])
                 bot.send_message(maker_id, f"✅ Ваш запрос одобрен. Стаж обновлён на «{req[3]}».")
         else:
             bot.send_message(maker_id, "✅ Ваш запрос правок был рассмотрен администратором.")
