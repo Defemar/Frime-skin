@@ -6,7 +6,6 @@ from utils.keyboards import main_menu_markup
 from utils.helpers import is_blacklisted, username_by_id, notify_admins
 
 def register_user_handlers(bot):
-    
     @bot.message_handler(commands=['start'])
     def start(message):
         if is_blacklisted(message.from_user.id):
@@ -33,28 +32,22 @@ def register_user_handlers(bot):
             bot.send_message(chat_id, "😔 Скинмейкеры не найдены.")
             return
         makers = bot.current_makers
-        if index < 0 or index >= len(makers):
-            return
+        if index < 0 or index >= len(makers): return
         maker = makers[index]
         text = format_maker_card(maker)
         photo_ids = json.loads(maker[8])
         markup = types.InlineKeyboardMarkup(row_width=3)
         nav = []
-        if index > 0:
-            nav.append(types.InlineKeyboardButton("⬅️", callback_data=f'nav_{index-1}'))
+        if index > 0: nav.append(types.InlineKeyboardButton("⬅️", callback_data=f'nav_{index-1}'))
         nav.append(types.InlineKeyboardButton(f"{index+1}/{len(makers)}", callback_data='none'))
-        if index < len(makers)-1:
-            nav.append(types.InlineKeyboardButton("➡️", callback_data=f'nav_{index+1}'))
+        if index < len(makers)-1: nav.append(types.InlineKeyboardButton("➡️", callback_data=f'nav_{index+1}'))
         markup.row(*nav)
         if maker[31]:
             url = maker[31].strip()
             if not url.startswith('http'):
-                if url.startswith('@'):
-                    url = f"https://t.me/{url[1:]}"
-                elif url.startswith('t.me/'):
-                    url = f"https://{url}"
-                else:
-                    url = f"https://t.me/{url}"
+                if url.startswith('@'): url = f"https://t.me/{url[1:]}"
+                elif url.startswith('t.me/'): url = f"https://{url}"
+                else: url = f"https://t.me/{url}"
             markup.row(types.InlineKeyboardButton("✉️ Заказ", url=url))
         markup.row(types.InlineKeyboardButton("⭐ Оценить", callback_data=f'rate_{maker[0]}'),
                    types.InlineKeyboardButton("📝 Отзывы", callback_data=f'reviews_{maker[0]}'),
@@ -111,8 +104,7 @@ def register_user_handlers(bot):
             bot.current_filter = 'service'
             bot.current_filter_value = service
             makers = get_makers_by_filter('service', service)
-        else:
-            return
+        else: return
         bot.delete_message(call.message.chat.id, call.message.message_id)
         if not makers:
             bot.send_message(call.message.chat.id, "😔 Ничего не найдено.")
@@ -129,12 +121,10 @@ def register_user_handlers(bot):
     def nav_cards(call):
         try:
             index = int(call.data.split('_')[1])
-            if not bot.current_makers:
-                return
+            if not bot.current_makers: return
             bot.delete_message(call.message.chat.id, call.message.message_id)
             show_card(call.message.chat.id, index)
-        except:
-            pass
+        except: pass
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('gallery_'))
     def gallery(call):
@@ -144,8 +134,7 @@ def register_user_handlers(bot):
         c.execute("SELECT photo_ids FROM skin_makers WHERE id=?", (maker_id,))
         row = c.fetchone()
         conn.close()
-        if not row:
-            return
+        if not row: return
         photos = json.loads(row[0])
         if not photos:
             bot.answer_callback_query(call.id, "Нет фото")
@@ -162,8 +151,7 @@ def register_user_handlers(bot):
         c.execute("SELECT social_telegram, social_twitter, social_pinterest, social_tiktok, social_youtube, social_instagram, social_vk, social_max FROM skin_makers WHERE id=?", (maker_id,))
         row = c.fetchone()
         conn.close()
-        if not row:
-            return
+        if not row: return
         links = []
         if row[0]: links.append(("📨 Telegram", row[0]))
         if row[1]: links.append(("𝕏 Twitter", row[1]))
@@ -263,7 +251,7 @@ def register_user_handlers(bot):
     def about(message):
         bot.send_message(message.chat.id, "Frime Skin — платформа для поиска скинмейкеров Minecraft.\nСвязь: @Defemar\n\nМы помогаем найти идеального мастера для вашего скина.")
 
-    # ===== ОЦЕНКИ =====
+    # Оценки
     @bot.callback_query_handler(func=lambda call: call.data.startswith('rate_'))
     def rate_start(call):
         maker_id = int(call.data.split('_')[1])
@@ -293,8 +281,7 @@ def register_user_handlers(bot):
     def process_quality(message):
         try:
             q = int(message.text)
-            if q < 1 or q > 5:
-                raise ValueError
+            if q < 1 or q > 5: raise ValueError
         except:
             bot.send_message(message.chat.id, "Введите число от 1 до 5:")
             bot.register_next_step_handler(message, process_quality)
@@ -306,8 +293,7 @@ def register_user_handlers(bot):
     def process_speed(message):
         try:
             s = int(message.text)
-            if s < 1 or s > 5:
-                raise ValueError
+            if s < 1 or s > 5: raise ValueError
         except:
             bot.send_message(message.chat.id, "Введите число от 1 до 5:")
             bot.register_next_step_handler(message, process_speed)
@@ -319,8 +305,7 @@ def register_user_handlers(bot):
     def process_communication(message):
         try:
             c_val = int(message.text)
-            if c_val < 1 or c_val > 5:
-                raise ValueError
+            if c_val < 1 or c_val > 5: raise ValueError
         except:
             bot.send_message(message.chat.id, "Введите число от 1 до 5:")
             bot.register_next_step_handler(message, process_communication)
@@ -335,8 +320,7 @@ def register_user_handlers(bot):
             save_rating(message, maker_id, user_id, avg, bot.current_rate_quality, bot.current_rate_speed, c_val, reason="")
 
     def save_rating(message, maker_id, user_id, avg, q, s, c_val, reason=None):
-        if reason is None:
-            reason = message.text
+        if reason is None: reason = message.text
         conn = sqlite3.connect('firme_skin.db')
         c = conn.cursor()
         c.execute("DELETE FROM ratings WHERE skin_maker_id=? AND user_id=?", (maker_id, user_id))
@@ -347,9 +331,9 @@ def register_user_handlers(bot):
         conn.close()
         bot.send_message(message.chat.id, "✅ Спасибо за оценку!")
         if avg <= 2.5:
-            notify_admins(bot, f"⚠️ Низкая оценка ({avg}) мастеру ID{maker_id} от {username_by_id(user_id)}\nПричина: {reason}")
+            notify_admins(bot, f"⚠️ Низкая оценка ({avg}) мастеру ID{maker_id} от {username_by_id(bot, user_id)}\nПричина: {reason}")
 
-    # ===== ОТЗЫВЫ =====
+    # Отзывы
     @bot.callback_query_handler(func=lambda call: call.data.startswith('reviews_'))
     def show_reviews(call):
         maker_id = int(call.data.split('_')[1])
@@ -364,8 +348,7 @@ def register_user_handlers(bot):
         text = "📝 Отзывы:\n\n"
         for rev in reviews:
             text += f"👤 {rev[3]}\n⭐ Оценка: {rev[5]}/5\n💬 {rev[4]}\n"
-            if rev[6] or rev[7]:
-                text += "📸 (фото до/после)\n"
+            if rev[6] or rev[7]: text += "📸 (фото до/после)\n"
             text += f"📅 {rev[8][:10]}\n\n"
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("✍️ Оставить отзыв", callback_data=f'addreview_{maker_id}'))
@@ -383,18 +366,14 @@ def register_user_handlers(bot):
         bot.register_next_step_handler(message, process_review_before)
 
     def process_review_before(message):
-        if message.content_type == 'photo':
-            bot.current_review_before = message.photo[-1].file_id
-        else:
-            bot.current_review_before = None
+        if message.content_type == 'photo': bot.current_review_before = message.photo[-1].file_id
+        else: bot.current_review_before = None
         bot.send_message(message.chat.id, "📸 Фото ПОСЛЕ (или '-'):")
         bot.register_next_step_handler(message, process_review_after)
 
     def process_review_after(message):
-        if message.content_type == 'photo':
-            after_id = message.photo[-1].file_id
-        else:
-            after_id = None
+        if message.content_type == 'photo': after_id = message.photo[-1].file_id
+        else: after_id = None
         conn = sqlite3.connect('firme_skin.db')
         c = conn.cursor()
         c.execute("INSERT INTO reviews (skin_maker_id, user_id, username, review_text, rating, photo_before_id, photo_after_id) VALUES (?,?,?,?,?,?,?)",
@@ -415,7 +394,5 @@ def register_user_handlers(bot):
             return
         for n in news:
             text = f"{n[0]}\n📅 {n[2][:10]}"
-            if n[1]:
-                bot.send_photo(message.chat.id, n[1], caption=text)
-            else:
-                bot.send_message(message.chat.id, text)
+            if n[1]: bot.send_photo(message.chat.id, n[1], caption=text)
+            else: bot.send_message(message.chat.id, text)
