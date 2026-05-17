@@ -42,4 +42,4 @@ def check_achievements():
 
 threading.Thread(target=check_achievements, daemon=True).start()
 print("Бот Frime Skin запущен...")
-bot.polling(none_stop=True)
+bot.polling(none_stop=True) 
