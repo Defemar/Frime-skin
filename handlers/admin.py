@@ -3,9 +3,9 @@ import json
 import shutil
 from datetime import datetime
 from telebot import types
-from database.models import show_applications, log_action
+from database.models import show_applications, log_action, get_application_by_id
 from utils.keyboards import main_menu_markup, admin_panel_markup
-from utils.helpers import is_admin, is_main_admin, username_by_id, notify_admins
+from utils.helpers import is_admin, is_main_admin, username_by_id, notify_admins, notify_admins_with_markup
 import re
 
 admin_temp_data = {}
@@ -56,6 +56,52 @@ def register_admin_handlers(bot):
         if not is_admin(message.from_user.id):
             return
         show_applications(message.chat.id, bot, username_by_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('view_app_'))
+    def view_application(call):
+        app_id = int(call.data.split('_')[2])
+        app = get_application_by_id(app_id)
+        if not app:
+            bot.answer_callback_query(call.id, "Заявка не найдена.")
+            return
+        text = f"📋 Заявка #{app[0]}\n\n👤 Имя: {app[3]}\n💬 Описание: {app[4]}\n"
+        price_text = f"от {app[5]} ₽" if app[5] else "не указана"
+        if app[6] and app[7]:
+            price_text = f"от {app[6]} до {app[7]} ₽"
+        text += f"💲 Ценник: {price_text}\n🎨 Стиль: {app[10]}\n🛠️ Услуги: {app[8]}\n⏱ Сроки: {app[24]}–{app[25]} дн.\n"
+        if app[15]:
+            text += f"🔗 Ссылка: {app[15]}\n"
+        soc = []
+        if app[16]: soc.append(f"📨 Telegram: {app[16]}")
+        if app[17]: soc.append(f"𝕏 Twitter: {app[17]}")
+        if app[18]: soc.append(f"📌 Pinterest: {app[18]}")
+        if app[19]: soc.append(f"🎵 TikTok: {app[19]}")
+        if app[20]: soc.append(f"▶️ YouTube: {app[20]}")
+        if app[21]: soc.append(f"📷 Instagram: {app[21]}")
+        if app[22]: soc.append(f"💙 VK: {app[22]}")
+        if app[23]: soc.append(f"🔶 Max: {app[23]}")
+        if soc:
+            text += "🌐 Соцсети:\n" + "\n".join(soc) + "\n"
+        text += f"\nОтправитель: {username_by_id(app[1])}"
+        photos = json.loads(app[9]) if app[9] else []
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("✅ Принять", callback_data=f'approve_{app[0]}'),
+                   types.InlineKeyboardButton("❌ Отклонить", callback_data=f'reject_{app[0]}'))
+        markup.add(types.InlineKeyboardButton("⚠️ Сообщить о несоответствии", callback_data=f'report_issue_{app[0]}'))
+        if photos:
+            bot.send_photo(call.message.chat.id, photos[0], caption=text, reply_markup=markup)
+        else:
+            bot.send_message(call.message.chat.id, text, reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('report_issue_'))
+    def report_issue(call):
+        app_id = int(call.data.split('_')[2])
+        app = get_application_by_id(app_id)
+        if not app:
+            bot.answer_callback_query(call.id, "Заявка не найдена.")
+            return
+        bot.send_message(call.message.chat.id, f"Свяжитесь с заявителем: {username_by_id(app[1])}\nОбъясните причину несоответствия.")
+        bot.answer_callback_query(call.id, "Контакт отправлен в чат.")
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('approve_'))
     def approve_app(call):
@@ -812,4 +858,4 @@ def register_admin_handlers(bot):
         if maker:
             bot.send_message(maker[0], "❌ Ваш запрос правок был отклонён администратором.")
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-        bot.send_message(call.message.chat.id, f"❌ Запрос #{req_id} отклонён.") 
+        bot.send_message(call.message.chat.id, f"❌ Запрос #{req_id} отклонён.")
