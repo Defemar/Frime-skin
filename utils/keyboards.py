@@ -2,7 +2,7 @@ from telebot import types
 
 def main_menu_markup():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add("🔍 Поиск скинмейкеров", "📝 Подать заявку", "📌 Мои закладки", "👤 Мой профиль",
+    markup.add("🔍 Лента", "📝 Подать заявку", "📌 Мои закладки", "👤 Мой профиль",
                "📢 Новости", "💸 Донат на сервера", "ℹ️ О боте")
     return markup
 
@@ -18,4 +18,4 @@ def admin_panel_markup():
                "⛔ Теневой бан", "🚫 Чёрный список", "👑 Админы", "➕ Добавить скинмейкера",
                "🔧 Ред. скинмейкера", "📝 Лог", "🔄 Пересчитать рейтинг", "🗂️ Очистить старые заявки",
                "🔙 Выйти")
-    return markup 
+    return markup
