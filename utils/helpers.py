@@ -51,4 +51,4 @@ def notify_admins_with_markup(bot, text, markup):
             bot.send_message(row[0], text, reply_markup=markup)
         except:
             pass
-    conn.close()
+    conn.close() 
