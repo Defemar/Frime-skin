@@ -2,7 +2,7 @@ import sqlite3
 import json
 from datetime import datetime
 import random
-from telebot import types   # <-- обязательно для show_applications
+from telebot import types
 
 def init_db():
     conn = sqlite3.connect('firme_skin.db', check_same_thread=False)
