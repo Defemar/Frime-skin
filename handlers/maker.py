@@ -756,7 +756,6 @@ def register_maker_handlers(bot):
         app_id = c.lastrowid
         conn.close()
         bot.send_message(message.chat.id, "✅ Заявка отправлена!", reply_markup=main_menu_markup())
-        # Уведомление админов с кнопкой просмотра заявки
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("📋 Просмотр заявки", callback_data=f'view_app_{app_id}'))
         notify_admins_with_markup(bot, f"📋 Новая заявка #{app_id} от @{message.from_user.username}", markup)
