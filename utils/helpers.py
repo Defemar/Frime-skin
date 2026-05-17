@@ -40,3 +40,15 @@ def notify_admins(bot, text):
         except:
             pass
     conn.close()
+
+def notify_admins_with_markup(bot, text, markup):
+    bot.send_message(ADMIN_ID, text, reply_markup=markup)
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM admins")
+    for row in c.fetchall():
+        try:
+            bot.send_message(row[0], text, reply_markup=markup)
+        except:
+            pass
+    conn.close()
