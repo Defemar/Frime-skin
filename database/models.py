@@ -7,7 +7,6 @@ from telebot import types
 def init_db():
     conn = sqlite3.connect('firme_skin.db', check_same_thread=False)
     c = conn.cursor()
-
     c.execute('''CREATE TABLE IF NOT EXISTS skin_makers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER UNIQUE,
@@ -51,11 +50,9 @@ def init_db():
         social_max TEXT,
         order_display TEXT
     )''')
-
     for col in ['price_min', 'price_max', 'order_display']:
         try: c.execute(f"ALTER TABLE skin_makers ADD COLUMN {col}")
         except: pass
-
     c.execute('''CREATE TABLE IF NOT EXISTS ratings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         skin_maker_id INTEGER,
@@ -68,7 +65,6 @@ def init_db():
         is_removed BOOLEAN DEFAULT 0,
         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
-
     c.execute('''CREATE TABLE IF NOT EXISTS reviews (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         skin_maker_id INTEGER,
@@ -80,13 +76,11 @@ def init_db():
         photo_after_id TEXT,
         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
-
     c.execute('''CREATE TABLE IF NOT EXISTS bookmark_folders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
         folder_name TEXT
     )''')
-
     c.execute('''CREATE TABLE IF NOT EXISTS bookmarks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
@@ -94,7 +88,6 @@ def init_db():
         folder_id INTEGER DEFAULT 0,
         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
-
     c.execute('''CREATE TABLE IF NOT EXISTS applications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
@@ -123,11 +116,9 @@ def init_db():
         delivery_min_days INTEGER DEFAULT 1,
         delivery_max_days INTEGER DEFAULT 3
     )''')
-
     for col in ['price_min', 'price_max']:
         try: c.execute(f"ALTER TABLE applications ADD COLUMN {col}")
         except: pass
-
     c.execute('''CREATE TABLE IF NOT EXISTS achievements (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         skin_maker_id INTEGER,
@@ -135,7 +126,6 @@ def init_db():
         date_awarded TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_achievements_maker_type ON achievements (skin_maker_id, type)")
-
     c.execute('''CREATE TABLE IF NOT EXISTS announcements (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         text TEXT,
@@ -143,7 +133,6 @@ def init_db():
         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         is_important BOOLEAN DEFAULT 0
     )''')
-
     c.execute('''CREATE TABLE IF NOT EXISTS edit_requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         skin_maker_id INTEGER,
@@ -153,7 +142,6 @@ def init_db():
         admin_response TEXT,
         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
-
     c.execute('''CREATE TABLE IF NOT EXISTS action_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         admin_id INTEGER,
@@ -161,19 +149,16 @@ def init_db():
         details TEXT,
         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
-
     c.execute('''CREATE TABLE IF NOT EXISTS blacklist (
         user_id INTEGER PRIMARY KEY,
         reason TEXT,
         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
-
     c.execute('''CREATE TABLE IF NOT EXISTS admins (
         user_id INTEGER PRIMARY KEY,
         added_by INTEGER,
         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
-
     conn.commit()
     conn.close()
 
@@ -197,7 +182,6 @@ def get_makers_by_filter(filter_type, value=None, limit=30):
     c.execute(query, params)
     makers = c.fetchall()
     conn.close()
-
     filtered = []
     for m in makers:
         style = m[17] if m[17] else ''
@@ -214,64 +198,42 @@ def get_makers_by_filter(filter_type, value=None, limit=30):
 
 def format_maker_card(maker):
     from config import countries, flags
-
     (id, uid, uname, name, desc, price, price_min, price_max, services, photo_ids,
      rating, total, complaints, active, vacation, vac_text, reg_date,
      style, custom_style, dmin, dmax, shadow, shadow_reason, verdict,
      views, orders, orders_conf, busy_until, emoji, country, disp_exp,
      contact_link, social_tg, social_tw, social_pin, social_tiktok,
      social_yt, social_inst, social_vk, social_max, order_display) = maker
-
-    if rating is None:
-        rating = 5.0
+    if rating is None: rating = 5.0
     flag = flags.get(country, '🏳️')
     country_name = countries.get(country, country)
     emoji_display = f"{emoji} " if emoji else ""
     name_display = f"{emoji_display}{name} *{flag} {country_name}*"
     style_display = style.replace(',', ' + ')
-    if custom_style:
-        style_display += f"\n✨ {custom_style}"
+    if custom_style: style_display += f"\n✨ {custom_style}"
     delivery = f"{dmin}–{dmax} дн."
-
     status = ""
-    if vacation:
-        status = "🏖️ В отпуске"
+    if vacation: status = "🏖️ В отпуске"
     elif busy_until:
         try:
             busy_date = datetime.strptime(busy_until, '%Y-%m-%d')
-            if busy_date > datetime.now():
-                status = f"⚠️ Перегружен до {busy_date.strftime('%d.%m.%Y')}"
-        except:
-            pass
-
-    if disp_exp:
-        experience = disp_exp
+            if busy_date > datetime.now(): status = f"⚠️ Перегружен до {busy_date.strftime('%d.%m.%Y')}"
+        except: pass
+    if disp_exp: experience = disp_exp
     else:
         reg = datetime.strptime(reg_date, '%Y-%m-%d %H:%M:%S')
         days = (datetime.now() - reg).days
-        if days < 30:
-            experience = "Меньше месяца"
-        elif days < 180:
-            experience = "Больше месяца"
-        elif days < 365:
-            experience = "Больше полугода"
-        else:
-            experience = f"{days // 365} год(а)"
-
-    if order_display:
-        orders_text = order_display
-    else:
-        orders_text = f"{orders} ✅" if orders_conf else f"~{orders}"
-
+        if days < 30: experience = "Меньше месяца"
+        elif days < 180: experience = "Больше месяца"
+        elif days < 365: experience = "Больше полугода"
+        else: experience = f"{days // 365} год(а)"
+    if order_display: orders_text = order_display
+    else: orders_text = f"{orders} ✅" if orders_conf else f"~{orders}"
     if price_min and price_max and price_min != price_max:
         price_text = f"от {price_min} до {price_max} ₽"
-    elif price:
-        price_text = f"от {price} ₽"
-    else:
-        price_text = "не указана"
-
+    elif price: price_text = f"от {price} ₽"
+    else: price_text = "не указана"
     text = f"{name_display}\n\n🎨 Стиль: {style_display}\n⏱ Срок: {delivery}\n💲 Ценник: {price_text}\n⭐ Рейтинг: {rating:.1f}/5\n"
-
     conn = sqlite3.connect('firme_skin.db')
     c = conn.cursor()
     c.execute("SELECT quality, speed, communication FROM ratings WHERE skin_maker_id=? ORDER BY date DESC LIMIT 1", (id,))
@@ -281,10 +243,8 @@ def format_maker_card(maker):
         q, s, comm = crit
         text += f"   • Качество: {q}  •  Скорость: {s}  •  Общение: {comm}\n"
     text += "\n"
-    if status:
-        text += f"{status}\n\n"
+    if status: text += f"{status}\n\n"
     text += f"📊 Заказов: {orders_text}\n👁 Просмотров: {views}\n🕰️ Стаж: {experience}\n"
-
     conn = sqlite3.connect('firme_skin.db')
     c = conn.cursor()
     c.execute("SELECT type FROM achievements WHERE skin_maker_id=?", (id,))
@@ -296,6 +256,14 @@ def format_maker_card(maker):
         text += "\n🏆 Достижения:\n   " + "\n   ".join([icons.get(a, a) for a in ach_list])
     text += f"\n📝 {desc[:200]}{'...' if len(desc) > 200 else ''}"
     return text
+
+def get_application_by_id(app_id):
+    conn = sqlite3.connect('firme_skin.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM applications WHERE id=?", (app_id,))
+    app = c.fetchone()
+    conn.close()
+    return app
 
 def show_applications(chat_id, bot, username_by_id):
     conn = sqlite3.connect('firme_skin.db')
@@ -326,7 +294,6 @@ def show_applications(chat_id, bot, username_by_id):
         if soc:
             text += "🌐 Соцсети:\n" + "\n".join(soc) + "\n"
         text += f"\nОтправитель: {username_by_id(app[1])}"
-
         photos = json.loads(app[9]) if app[9] else []
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("✅ Принять", callback_data=f'approve_{app[0]}'),
