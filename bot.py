@@ -8,6 +8,19 @@ import threading
 import time
 import re
 import shutil
+from collections import defaultdict
+import time
+
+rate_limit = defaultdict(list)
+
+def check_rate_limit(user_id, limit=10, period=60):
+    now = time.time()
+    if len(rate_limit[user_id]) >= limit:
+        if now - rate_limit[user_id][0] < period:
+            return False
+    rate_limit[user_id] = [t for t in rate_limit[user_id] if now - t < period]
+    rate_limit[user_id].append(now)
+    return True
 
 TOKEN = "8623923833:AAHv6xe6u9xtncfp_7xRvjJzOKorOiLcPwY"
 ADMIN_ID = 5268276353
