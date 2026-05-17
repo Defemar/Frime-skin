@@ -8,7 +8,7 @@ import re
 from telebot import types
 from config import countries, flags
 from utils.keyboards import main_menu_markup, apply_keyboard
-from utils.helpers import is_blacklisted, notify_admins
+from utils.helpers import is_blacklisted, notify_admins, notify_admins_with_markup
 
 user_states = {}
 
@@ -27,7 +27,6 @@ def register_maker_handlers(bot):
             bot.send_message(message.chat.id,
                              "Вы не зарегистрированы как скинмейкер. Подайте заявку или дождитесь её одобрения.")
             return
-        # Сохраняем ID в состояние пользователя
         if user_id not in user_states:
             user_states[user_id] = {}
         user_states[user_id]['maker_id'] = maker[0]
@@ -65,10 +64,361 @@ def register_maker_handlers(bot):
         )
         bot.send_message(message.chat.id, text, reply_markup=markup)
 
-    # ===================== РЕДАКТИРОВАНИЕ ПРОФИЛЯ (примеры) =====================
-    # (Остальные обработчики редактирования здесь опущены для краткости, но должны быть вставлены полностью,
-    #  они не затрагиваются исправлениями. Просто убедитесь, что они используют user_states[user_id]['maker_id']
-    #  вместо bot.current_profile_maker_id. Аналогично для всех изменяющих БД функций.)
+    # ===================== РЕДАКТИРОВАНИЕ ПРОФИЛЯ =====================
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_profile')
+    def edit_profile_cb(call):
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("Изменить имя", callback_data='edit_name'),
+            types.InlineKeyboardButton("Изменить описание", callback_data='edit_desc'),
+            types.InlineKeyboardButton("Изменить стиль", callback_data='edit_style'),
+            types.InlineKeyboardButton("Изменить услуги", callback_data='edit_services'),
+            types.InlineKeyboardButton("Изменить фото", callback_data='edit_photos'),
+            types.InlineKeyboardButton("Изменить ссылку для заказа", callback_data='edit_contact'),
+            types.InlineKeyboardButton("Изменить соцсети", callback_data='edit_social'),
+            types.InlineKeyboardButton("⏱️ Изменить сроки", callback_data='edit_delivery'),
+            types.InlineKeyboardButton("🔙 Назад", callback_data='back_to_profile')
+        )
+        bot.edit_message_text("Что вы хотите изменить?", call.message.chat.id, call.message.message_id, reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'back_to_profile')
+    def back_to_profile(call):
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        profile_main(call.message)
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_name')
+    def edit_name_cb(call):
+        bot.send_message(call.message.chat.id, "Введите новое имя:")
+        bot.register_next_step_handler(call.message, process_edit_name)
+
+    def process_edit_name(message):
+        user_id = message.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("UPDATE skin_makers SET name=? WHERE user_id=?", (message.text, user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "✅ Имя обновлено.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_desc')
+    def edit_desc_cb(call):
+        bot.send_message(call.message.chat.id, "Введите новое описание:")
+        bot.register_next_step_handler(call.message, process_edit_desc)
+
+    def process_edit_desc(message):
+        user_id = message.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("UPDATE skin_makers SET description=? WHERE user_id=?", (message.text, user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "✅ Описание обновлено.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_style')
+    def edit_style_cb(call):
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        for s in ['modern', 'colorful', 'realism', 'namemc', 'special']:
+            markup.add(types.InlineKeyboardButton(s, callback_data=f'set_style_{s}'))
+        bot.send_message(call.message.chat.id, "Выберите стиль:", reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('set_style_'))
+    def set_style(call):
+        style = call.data.split('_')[2]
+        user_id = call.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("UPDATE skin_makers SET style=? WHERE user_id=?", (style, user_id))
+        conn.commit()
+        conn.close()
+        bot.edit_message_text(f"✅ Стиль изменён на {style}", call.message.chat.id, call.message.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_services')
+    def edit_services_cb(call):
+        bot.send_message(call.message.chat.id, "Введите услуги через запятую:")
+        bot.register_next_step_handler(call.message, process_edit_services)
+
+    def process_edit_services(message):
+        user_id = message.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("UPDATE skin_makers SET services=? WHERE user_id=?", (message.text, user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "✅ Услуги обновлены.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_photos')
+    def edit_photos_cb(call):
+        bot.send_message(call.message.chat.id, "Отправьте новые фото (до 9, по одному, затем /done):")
+        bot.register_next_step_handler(call.message, process_edit_photos)
+
+    def process_edit_photos(message):
+        if message.content_type == 'photo':
+            user_id = message.from_user.id
+            conn = sqlite3.connect('firme_skin.db')
+            c = conn.cursor()
+            c.execute("UPDATE skin_makers SET photo_ids=? WHERE user_id=?", (json.dumps([message.photo[-1].file_id]), user_id))
+            conn.commit()
+            conn.close()
+            bot.send_message(message.chat.id, "✅ Фото обновлено (заменено на одно).")
+        else:
+            bot.send_message(message.chat.id, "Отправьте фото или /done для пропуска.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_contact')
+    def edit_contact_cb(call):
+        bot.send_message(call.message.chat.id, "Введите новую ссылку для заказа:")
+        bot.register_next_step_handler(call.message, process_edit_contact)
+
+    def process_edit_contact(message):
+        user_id = message.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("UPDATE skin_makers SET contact_link=? WHERE user_id=?", (message.text.strip(), user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "✅ Ссылка обновлена.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_social')
+    def edit_social_cb(call):
+        bot.send_message(call.message.chat.id, "Введите соцсети в формате:\nTelegram: ссылка\n...\nMax: ссылка\n(можно '-' для пропуска):")
+        bot.register_next_step_handler(call.message, process_edit_social)
+
+    def process_edit_social(message):
+        user_id = message.from_user.id
+        text = message.text.strip()
+        socials = {'telegram': None, 'twitter': None, 'pinterest': None,
+                   'tiktok': None, 'youtube': None, 'instagram': None,
+                   'vk': None, 'max': None}
+        if text != '-':
+            pairs = text.replace('\n', ',').split(',')
+            for pair in pairs:
+                if ':' in pair:
+                    key, val = pair.split(':', 1)
+                    key = key.strip().lower(); val = val.strip()
+                    if 'tg' in key or 'telegram' in key: socials['telegram'] = val
+                    elif 'tw' in key or 'twitter' in key or 'x' in key: socials['twitter'] = val
+                    elif 'pin' in key or 'pinterest' in key: socials['pinterest'] = val
+                    elif 'tik' in key or 'tiktok' in key: socials['tiktok'] = val
+                    elif 'you' in key or 'youtube' in key: socials['youtube'] = val
+                    elif 'insta' in key or 'instagram' in key: socials['instagram'] = val
+                    elif 'vk' in key: socials['vk'] = val
+                    elif 'max' in key: socials['max'] = val
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute('''UPDATE skin_makers SET social_telegram=?, social_twitter=?, social_pinterest=?, social_tiktok=?,
+                     social_youtube=?, social_instagram=?, social_vk=?, social_max=? WHERE user_id=?''',
+                  (socials['telegram'], socials['twitter'], socials['pinterest'],
+                   socials['tiktok'], socials['youtube'], socials['instagram'],
+                   socials['vk'], socials['max'], user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "✅ Соцсети обновлены.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_emoji')
+    def edit_emoji_cb(call):
+        bot.send_message(call.message.chat.id, "Отправьте один эмодзи (или '-' чтобы убрать):")
+        bot.register_next_step_handler(call.message, process_edit_emoji)
+
+    def process_edit_emoji(message):
+        user_id = message.from_user.id
+        text = message.text.strip()
+        emoji = None if text == '-' else text[0]
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("UPDATE skin_makers SET custom_emoji=? WHERE user_id=?", (emoji, user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "✅ Эмодзи обновлён.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_country')
+    def edit_country_cb(call):
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        for code, name in countries.items():
+            markup.add(types.InlineKeyboardButton(f"{flags[code]} {name}", callback_data=f'set_country_{code}'))
+        bot.send_message(call.message.chat.id, "🌍 Выберите страну:", reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('set_country_'))
+    def set_country_cb(call):
+        country_code = call.data.split('_')[2]
+        user_id = call.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("UPDATE skin_makers SET country_code=? WHERE user_id=?", (country_code, user_id))
+        conn.commit()
+        conn.close()
+        bot.edit_message_text(f"✅ Страна изменена на {flags[country_code]} {countries[country_code]}", call.message.chat.id, call.message.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_delivery')
+    def edit_delivery_cb(call):
+        bot.send_message(call.message.chat.id, "Введите минимальный срок (дней):")
+        bot.register_next_step_handler(call.message, process_edit_delivery_min)
+
+    def process_edit_delivery_min(message):
+        try:
+            dmin = int(message.text)
+            if dmin < 1: raise ValueError
+        except:
+            bot.send_message(message.chat.id, "❌ Введите целое число >0:")
+            bot.register_next_step_handler(message, process_edit_delivery_min)
+            return
+        bot.send_message(message.chat.id, "Введите максимальный срок (дней):")
+        bot.register_next_step_handler(message, process_edit_delivery_max, dmin)
+
+    def process_edit_delivery_max(message, dmin):
+        try:
+            dmax = int(message.text)
+            if dmax < dmin: raise ValueError
+        except:
+            bot.send_message(message.chat.id, f"❌ Введите число ≥ {dmin}:")
+            bot.register_next_step_handler(message, process_edit_delivery_max, dmin)
+            return
+        user_id = message.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("UPDATE skin_makers SET delivery_min_days=?, delivery_max_days=? WHERE user_id=?", (dmin, dmax, user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, f"✅ Сроки обновлены: {dmin}–{dmax} дн.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_exp')
+    def edit_exp_cb(call):
+        bot.send_message(call.message.chat.id, "Введите новый стаж (например, '2 года'):")
+        bot.register_next_step_handler(call.message, process_edit_exp)
+
+    def process_edit_exp(message):
+        user_id = message.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("UPDATE skin_makers SET display_experience=? WHERE user_id=?", (message.text.strip(), user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "✅ Стаж обновлён.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_orders')
+    def edit_orders_cb(call):
+        bot.send_message(call.message.chat.id, "Введите количество заказов (можно '500+'):")
+        bot.register_next_step_handler(call.message, process_edit_orders)
+
+    def process_edit_orders(message):
+        user_id = message.from_user.id
+        val = message.text.strip()
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        if val.isdigit():
+            c.execute("UPDATE skin_makers SET completed_orders=?, orders_confirmed=1, order_display=NULL WHERE user_id=?", (int(val), user_id))
+        else:
+            c.execute("UPDATE skin_makers SET order_display=?, orders_confirmed=1 WHERE user_id=?", (val, user_id))
+            nums = re.findall(r'\d+', val)
+            if nums: c.execute("UPDATE skin_makers SET completed_orders=? WHERE user_id=?", (int(nums[0]), user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, f"✅ Заказы обновлены: {val}")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'edit_prices')
+    def edit_prices_cb(call):
+        bot.send_message(call.message.chat.id, "Введите минимальную цену:")
+        bot.register_next_step_handler(call.message, process_edit_price_min)
+
+    def process_edit_price_min(message):
+        try:
+            pmin = int(message.text)
+            user_id = message.from_user.id
+            conn = sqlite3.connect('firme_skin.db')
+            c = conn.cursor()
+            c.execute("UPDATE skin_makers SET price_min=? WHERE user_id=?", (pmin, user_id))
+            conn.commit()
+            conn.close()
+            bot.send_message(message.chat.id, "Введите максимальную цену:")
+            bot.register_next_step_handler(message, process_edit_price_max, user_id)
+        except:
+            bot.send_message(message.chat.id, "❌ Введите число. Минимальная цена:")
+            bot.register_next_step_handler(message, process_edit_price_min)
+
+    def process_edit_price_max(message, user_id):
+        try:
+            pmax = int(message.text)
+            conn = sqlite3.connect('firme_skin.db')
+            c = conn.cursor()
+            c.execute("UPDATE skin_makers SET price_max=?, price=? WHERE user_id=?", (pmax, pmax, user_id))
+            conn.commit()
+            conn.close()
+            bot.send_message(message.chat.id, "✅ Диапазон цен обновлён.")
+        except:
+            bot.send_message(message.chat.id, "❌ Введите число. Максимальная цена:")
+            bot.register_next_step_handler(message, process_edit_price_max, user_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'toggle_vacation')
+    def toggle_vacation_cb(call):
+        user_id = call.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("SELECT is_vacation FROM skin_makers WHERE user_id=?", (user_id,))
+        row = c.fetchone()
+        if not row:
+            bot.answer_callback_query(call.id, "Ошибка"); return
+        new_state = 0 if row[0] else 1
+        c.execute("UPDATE skin_makers SET is_vacation=? WHERE user_id=?", (new_state, user_id))
+        conn.commit()
+        conn.close()
+        bot.answer_callback_query(call.id, f"Режим отпуска {'включён' if new_state else 'выключен'}.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'set_busy')
+    def set_busy_cb(call):
+        bot.send_message(call.message.chat.id, "Введите дату, до которой заняты (ГГГГ-ММ-ДД) или '-' для снятия:")
+        bot.register_next_step_handler(call.message, process_busy_date)
+
+    def process_busy_date(message):
+        user_id = message.from_user.id
+        text = message.text.strip()
+        if text == '-': date_str = None
+        else:
+            try:
+                datetime.strptime(text, '%Y-%m-%d')
+                date_str = text
+            except:
+                bot.send_message(message.chat.id, "Неверный формат. Используйте ГГГГ-ММ-ДД.")
+                return
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("UPDATE skin_makers SET busy_until=? WHERE user_id=?", (date_str, user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "✅ Статус занятости обновлён.")
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'profile_stats')
+    def profile_stats_cb(call):
+        user_id = call.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("SELECT views, completed_orders, orders_confirmed, rating, total_ratings, order_display FROM skin_makers WHERE user_id=?", (user_id,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            bot.answer_callback_query(call.id, "Ошибка"); return
+        order_text = row[5] if row[5] else f"{row[1]} {'✅' if row[2] else '~'}"
+        text = f"📊 Статистика:\n👁 Просмотров: {row[0]}\n📦 Заказов: {order_text}\n⭐ Рейтинг: {(row[3] or 5.0):.1f} (оценок: {row[4]})"
+        bot.send_message(call.message.chat.id, text)
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'request_edit')
+    def request_edit_cb(call):
+        user_id = call.from_user.id
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("SELECT id FROM skin_makers WHERE user_id=?", (user_id,))
+        maker = c.fetchone()
+        conn.close()
+        if not maker:
+            bot.answer_callback_query(call.id, "Вы не скинмейкер"); return
+        bot.send_message(call.message.chat.id, "Опишите, что нужно изменить:")
+        bot.register_next_step_handler(call.message, process_edit_request, maker[0])
+
+    def process_edit_request(message, maker_id):
+        conn = sqlite3.connect('firme_skin.db')
+        c = conn.cursor()
+        c.execute("INSERT INTO edit_requests (skin_maker_id, field, new_value) VALUES (?,?,?)", (maker_id, 'custom', message.text))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, "Запрос отправлен администратору.")
+        notify_admins(bot, f"📩 Запрос правок от ID{maker_id}: {message.text}")
 
     # ===================== ПОДАЧА ЗАЯВКИ =====================
     @bot.message_handler(func=lambda m: m.text == "📝 Подать заявку")
@@ -77,7 +427,6 @@ def register_maker_handlers(bot):
             bot.send_message(message.chat.id, "🚫 Вы заблокированы.")
             return
         user_id = message.from_user.id
-        # Очищаем предыдущее состояние, если было
         if user_id in user_states:
             del user_states[user_id]
         user_states[user_id] = {'photos': [], 'step': 'photo'}
@@ -120,7 +469,6 @@ def register_maker_handlers(bot):
             elif re.match(r'https?://\S+\.(png|jpg|jpeg)(\?\S*)?$', message.text, re.IGNORECASE):
                 if len(user_states[user_id]['photos']) >= 9:
                     bot.send_message(message.chat.id, "⚠️ Максимум 9 фото. Отправьте /done.")
-                    # Важно: перерегистрируем обработчик, чтобы диалог продолжался
                     bot.register_next_step_handler(message, process_apply_photo)
                     return
                 try:
@@ -147,7 +495,6 @@ def register_maker_handlers(bot):
         else:
             bot.send_message(message.chat.id, "📸 Отправьте фото, ссылку на изображение, /done или /cancel.",
                              reply_markup=apply_keyboard())
-        # Продолжаем ожидание
         bot.register_next_step_handler(message, process_apply_photo)
 
     def process_apply_name(message):
@@ -190,7 +537,6 @@ def register_maker_handlers(bot):
             user_id = message.from_user.id
             pmin = user_states[user_id].get('price_min', 0)
             if pmax < pmin:
-                # Автоматически меняем местами с уведомлением
                 pmin, pmax = pmax, pmin
                 user_states[user_id]['price_min'] = pmin
                 bot.send_message(message.chat.id, "⚠️ Максимальная цена меньше минимальной. Значения поменяны местами.")
@@ -211,7 +557,6 @@ def register_maker_handlers(bot):
             bot.send_message(message.chat.id, "❌ Введите целое число.", reply_markup=apply_keyboard())
             bot.register_next_step_handler(message, process_apply_price_max)
 
-    # Обработчики колбэков стилей
     @bot.callback_query_handler(func=lambda call: call.data.startswith('applystyle_'))
     def apply_style_select(call):
         uid = call.from_user.id
@@ -225,7 +570,6 @@ def register_maker_handlers(bot):
             if not selected and not custom:
                 bot.answer_callback_query(call.id, "Выберите хотя бы один стиль!")
                 return
-            # Проверка NameMc: можно сочетать только с special, и только если нет кастомных стилей
             if 'namemc' in selected:
                 allowed_set = {'namemc', 'special'}
                 if set(selected) - allowed_set or custom:
@@ -271,7 +615,6 @@ def register_maker_handlers(bot):
             user_states[uid]['custom_styles'].append(custom_text)
             bot.send_message(message.chat.id, f"✅ Стиль «{custom_text}» добавлен. Можете продолжить выбор или нажать «Готово».",
                              reply_markup=apply_keyboard())
-            # Показать клавиатуру со стилями снова
             markup = types.InlineKeyboardMarkup(row_width=2)
             styles = ['modern', 'colorful', 'realism', 'namemc', 'special']
             for s in styles:
@@ -284,7 +627,6 @@ def register_maker_handlers(bot):
             bot.send_message(message.chat.id, "❌ Введите название стиля.", reply_markup=apply_keyboard())
             bot.register_next_step_handler(message, process_custom_style)
 
-    # Обработчики услуг
     @bot.callback_query_handler(func=lambda call: call.data.startswith('applyservice_'))
     def apply_service_select(call):
         uid = call.from_user.id
@@ -318,7 +660,6 @@ def register_maker_handlers(bot):
         bot.delete_message(call.message.chat.id, call.message.message_id)
         bot.send_message(call.message.chat.id, "❌ Заявка отменена.", reply_markup=main_menu_markup())
 
-    # Шаги после услуг
     def process_apply_contact(message):
         if check_cancel(message):
             return
@@ -352,7 +693,6 @@ def register_maker_handlers(bot):
             uid = message.from_user.id
             dmin = user_states[uid]['delivery_min']
             if dmax < dmin:
-                # Автоматически меняем
                 dmin, dmax = dmax, dmin
                 user_states[uid]['delivery_min'] = dmin
                 bot.send_message(message.chat.id, "⚠️ Максимальный срок меньше минимального. Значения поменяны местами.")
@@ -393,7 +733,7 @@ def register_maker_handlers(bot):
                     elif 'max' in k: soc['max'] = v
         data = user_states.pop(uid)
         final_styles = data.get('selected_styles', []) + data.get('custom_styles', [])
-        final_styles = list(dict.fromkeys(final_styles))  # удаляем дубликаты
+        final_styles = list(dict.fromkeys(final_styles))
         style_str = ', '.join(final_styles)
 
         conn = sqlite3.connect('firme_skin.db')
@@ -413,10 +753,10 @@ def register_maker_handlers(bot):
              soc['youtube'], soc['instagram'], soc['vk'], soc['max'],
              data.get('delivery_min', 1), data.get('delivery_max', 3)))
         conn.commit()
+        app_id = c.lastrowid
         conn.close()
         bot.send_message(message.chat.id, "✅ Заявка отправлена!", reply_markup=main_menu_markup())
-        notify_admins(bot, f"📋 Новая заявка от @{message.from_user.username}")
-
-    # ===================== ОСТАЛЬНЫЕ ОБРАБОТЧИКИ ПРОФИЛЯ (примеры) =====================
-    # (Вставьте сюда все функции редактирования из предыдущей полной версии. 
-    #  Убедитесь, что они используют user_states[user_id]['maker_id'] вместо bot.current_profile_maker_id.)
+        # Уведомление админов с кнопкой просмотра заявки
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("📋 Просмотр заявки", callback_data=f'view_app_{app_id}'))
+        notify_admins_with_markup(bot, f"📋 Новая заявка #{app_id} от @{message.from_user.username}", markup)
