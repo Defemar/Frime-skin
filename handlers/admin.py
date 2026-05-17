@@ -812,4 +812,4 @@ def register_admin_handlers(bot):
         if maker:
             bot.send_message(maker[0], "❌ Ваш запрос правок был отклонён администратором.")
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-        bot.send_message(call.message.chat.id, f"❌ Запрос #{req_id} отклонён.")
+        bot.send_message(call.message.chat.id, f"❌ Запрос #{req_id} отклонён.") 
