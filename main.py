@@ -15,12 +15,10 @@ bot.current_filter = 'popular_formula'
 bot.current_filter_value = None
 
 init_db()
-
 register_user_handlers(bot)
 register_admin_handlers(bot)
 register_maker_handlers(bot)
 
-# ===== ФОНОВАЯ ПРОВЕРКА ДОСТИЖЕНИЙ =====
 def check_achievements():
     while True:
         conn = sqlite3.connect('firme_skin.db')
