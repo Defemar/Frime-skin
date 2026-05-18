@@ -692,4 +692,4 @@ def admin_exit(message):
 if __name__ == '__main__':
     init_db()
     print("Бот запущен...")
-    bot.polling(none_stop=False, timeout=20, long_polling_timeout=5)
+    bot.polling(none_stop=False, timeout=20, long_polling_timeout=5) 
