@@ -17,12 +17,11 @@ ADMIN_ID = 5268276353
 
 bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
 
-# Хранилища состояний (раздельно для каждого пользователя)
-apply_states = {}   # для подачи заявки
-edit_states = {}    # для редактирования профиля
-feed_states = {}    # для ленты (свой список карточек и индекс для каждого пользователя)
+apply_states = {}
+edit_states = {}
+feed_states = {}
 
-# ===================== БАЗА ДАННЫХ (с timeout и UNIQUE) =====================
+# ===================== БАЗА ДАННЫХ =====================
 def db():
     return sqlite3.connect('firme_skin.db', check_same_thread=False, timeout=15)
 
@@ -136,7 +135,6 @@ def safe_edit_text(call, text, markup=None):
     try:
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
     except:
-        # Если не удалось, просто шлём новое сообщение
         bot.send_message(call.message.chat.id, text, reply_markup=markup)
 
 def safe_delete_message(chat_id, message_id):
@@ -159,7 +157,7 @@ def admin_cmd(message):
         return
     bot.send_message(message.chat.id, "🔐 <b>Админ-панель</b>", reply_markup=admin_menu())
 
-# ===================== ЛЕНТА (с раздельным состоянием) =====================
+# ===================== ЛЕНТА (с раздельным состоянием и соцсетями) =====================
 @bot.message_handler(func=lambda m: m.text == "🔍 Лента")
 def show_feed(message):
     conn = db()
@@ -210,6 +208,8 @@ def show_card(chat_id, index):
         types.InlineKeyboardButton("📌 В закладки", callback_data=f"bookmark_{m[0]}")
     )
 
+    # Кнопки "Заказ" и "Соц сети"
+    row_buttons = []
     if m[17]:
         contact = m[17].strip()
         if contact.startswith("@"):
@@ -220,7 +220,11 @@ def show_card(chat_id, index):
             url = "https://" + contact
         else:
             url = contact
-        markup.row(types.InlineKeyboardButton("✉️ Заказ", url=url))
+        row_buttons.append(types.InlineKeyboardButton("✉️ Заказ", url=url))
+    if m[18]:
+        row_buttons.append(types.InlineKeyboardButton("🌐 Соц сети", callback_data=f"social_{m[0]}"))
+    if row_buttons:
+        markup.row(*row_buttons)
 
     photos = safe_load_photos(m[10])
     if photos:
@@ -238,7 +242,21 @@ def nav_cards(call):
     safe_delete_message(call.message.chat.id, call.message.message_id)
     show_card(call.message.chat.id, index)
 
-# ===================== ОЦЕНКИ (с защитой от накрутки) =====================
+# ===================== СОЦСЕТИ =====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith('social_'))
+def show_social(call):
+    maker_id = int(call.data.split('_')[1])
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT social FROM makers WHERE id=?", (maker_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row or not row[0]:
+        bot.answer_callback_query(call.id, "Соцсети не указаны")
+        return
+    bot.send_message(call.message.chat.id, f"🌐 <b>Соцсети:</b>\n{row[0]}")
+
+# ===================== ОЦЕНКИ =====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith('rate_'))
 def rate_maker(call):
     maker_id = int(call.data.split('_')[1])
@@ -255,7 +273,6 @@ def process_rate(message, maker_id):
         return
     conn = db()
     c = conn.cursor()
-    # UNIQUE constraint защитит от повторной оценки
     try:
         c.execute("INSERT INTO ratings (maker_id, user_id, rating) VALUES (?,?,?)", (maker_id, message.from_user.id, r))
         c.execute("UPDATE makers SET rating=(SELECT AVG(rating) FROM ratings WHERE maker_id=?), reviews_count=(SELECT COUNT(*) FROM ratings WHERE maker_id=?) WHERE id=?", (maker_id, maker_id, maker_id))
@@ -692,4 +709,4 @@ def admin_exit(message):
 if __name__ == '__main__':
     init_db()
     print("Бот запущен...")
-    bot.polling(none_stop=False, timeout=20, long_polling_timeout=5) 
+    bot.polling(none_stop=False, timeout=20, long_polling_timeout=5)
