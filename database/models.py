@@ -184,17 +184,17 @@ def get_makers_by_filter(filter_type, value=None, limit=30):
     conn.close()
     filtered = []
     for m in makers:
-        style = m[17] if m[17] else ''
+        style = m[17] if m[17] else ''          # style имеет индекс 17
         if style.strip() == 'namemc' and random.random() > 0.1:
             continue
-        if m[22] and random.random() > 0.1:
+        if m[21] and random.random() > 0.1:     # shadow_banned имеет индекс 21
             continue
         filtered.append(m)
         if len(filtered) >= limit:
             break
     if filter_type == 'popular_formula':
         filtered.sort(
-            key=lambda m: (float(m[9]) if m[9] else 5.0) * (1 + (int(m[10]) if m[10] else 0) * 0.1),
+            key=lambda m: (float(m[10]) if m[10] else 5.0) * (1 + (int(m[11]) if m[11] else 0) * 0.1),
             reverse=True
         )
     return filtered
