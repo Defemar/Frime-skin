@@ -193,7 +193,10 @@ def get_makers_by_filter(filter_type, value=None, limit=30):
         if len(filtered) >= limit:
             break
     if filter_type == 'popular_formula':
-        filtered.sort(key=lambda m: (m[9] or 5.0) * (1 + (m[10] or 0) * 0.1), reverse=True)
+        filtered.sort(
+            key=lambda m: (float(m[9]) if m[9] else 5.0) * (1 + (int(m[10]) if m[10] else 0) * 0.1),
+            reverse=True
+        )
     return filtered
 
 def format_maker_card(maker):
@@ -204,7 +207,10 @@ def format_maker_card(maker):
      views, orders, orders_conf, busy_until, emoji, country, disp_exp,
      contact_link, social_tg, social_tw, social_pin, social_tiktok,
      social_yt, social_inst, social_vk, social_max, order_display) = maker
-    if rating is None: rating = 5.0
+    try:
+        rating = float(rating) if rating else 5.0
+    except (TypeError, ValueError):
+        rating = 5.0
     flag = flags.get(country, '🏳️')
     country_name = countries.get(country, country)
     emoji_display = f"{emoji} " if emoji else ""
