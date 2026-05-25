@@ -93,7 +93,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS admins (
         user_id INTEGER PRIMARY KEY
     )''')
-    # Добавляем поле portfolio, если его нет (для старых баз)
     try:
         c.execute("ALTER TABLE makers ADD COLUMN portfolio TEXT")
     except:
@@ -154,10 +153,10 @@ def safe_delete_message(chat_id, message_id):
     except:
         pass
 
-def validate_price(value):
+def validate_price(value, min_allowed=100, max_allowed=5000):
     try:
         p = int(value)
-        if p < 100 or p > 5000:
+        if p < min_allowed or p > max_allowed:
             return None
         return p
     except:
@@ -182,7 +181,6 @@ def admin_cmd(message):
 def show_feed(message):
     conn = db()
     c = conn.cursor()
-    # Применяем текущий фильтр пользователя, если он есть
     filter_type = feed_states.get(message.from_user.id, {}).get('filter', 'popular')
     makers = get_filtered_makers(filter_type)
     conn.close()
@@ -211,11 +209,9 @@ def get_filtered_makers(filter_type):
         c.execute("SELECT * FROM makers WHERE is_active=1")
         makers = c.fetchall()
         conn.close()
-        # Сортируем с учётом "веса" отзывов
         def popularity_score(m):
             rating = m[11] if m[11] else 5.0
             votes = m[12] if m[12] else 0
-            # Штраф для новичков: чем меньше оценок, тем ниже рейтинг
             if votes < 5:
                 penalty = (5 - votes) * 0.2
                 return rating - penalty
@@ -260,7 +256,6 @@ def show_card(chat_id, index):
         types.InlineKeyboardButton("📌 В закладки", callback_data=f"bookmark_{m[0]}")
     )
 
-    # Дополнительные кнопки (заказ, портфолио, соцсети)
     row_buttons = []
     if m[17]:
         contact = m[17].strip()
@@ -273,9 +268,9 @@ def show_card(chat_id, index):
         else:
             url = contact
         row_buttons.append(types.InlineKeyboardButton("✉️ Заказ", url=url))
-    if m[19]:  # portfolio
+    if m[19]:
         row_buttons.append(types.InlineKeyboardButton("🖼️ Портфолио", url=m[19]))
-    if m[18]:  # social
+    if m[18]:
         row_buttons.append(types.InlineKeyboardButton("🌐 Соц сети", callback_data=f"social_{m[0]}"))
     if row_buttons:
         markup.row(*row_buttons)
@@ -487,7 +482,7 @@ def edit_field_start(call):
         'name': "Введите новое имя:",
         'desc': "Введите новое описание:",
         'price_min': "Введите минимальную цену (число от 100 до 5000):",
-        'price_max': "Введите максимальную цену (число от 100 до 5000):",
+        'price_max': "Введите максимальную цену (число от 100 до 5000, не меньше минимальной):",
         'services': "Введите услуги через запятую:",
         'styles': "Введите стили через запятую:",
         'delivery': "Введите сроки (например, 2-7):",
@@ -512,6 +507,15 @@ def process_edit_field(message):
         if p is None:
             bot.send_message(message.chat.id, "Цена должна быть целым числом от 100 до 5000.")
             return
+        if field == 'price_max':
+            conn = db()
+            c = conn.cursor()
+            c.execute("SELECT price_min FROM makers WHERE id=?", (maker_id,))
+            min_price = c.fetchone()[0]
+            conn.close()
+            if p < min_price:
+                bot.send_message(message.chat.id, f"Максимальная цена не может быть меньше минимальной (текущая мин: {min_price} ₽). Введите число ≥ {min_price}.")
+                return
         value = p
     conn = db()
     c = conn.cursor()
@@ -538,7 +542,6 @@ def about(message):
 @bot.message_handler(func=lambda m: m.text == "📝 Подать заявку")
 def apply_start(message):
     user_id = message.from_user.id
-    # Проверка: не зарегистрирован ли уже
     conn = db()
     c = conn.cursor()
     c.execute("SELECT id FROM makers WHERE user_id=?", (user_id,))
@@ -588,14 +591,14 @@ def apply_price_min(message):
         return
     apply_states[uid]['price_min'] = p
     apply_states[uid]['step'] = 'price_max'
-    bot.send_message(message.chat.id, "💰 Максимальная цена (от 100 до 5000):")
+    bot.send_message(message.chat.id, f"💰 Максимальная цена (от {p} до 5000):")
 
 @bot.message_handler(func=lambda m: apply_states.get(m.from_user.id, {}).get('step') == 'price_max')
 def apply_price_max(message):
     uid = message.from_user.id
-    p = validate_price(message.text)
+    p = validate_price(message.text, min_allowed=apply_states[uid]['price_min'], max_allowed=5000)
     if p is None:
-        bot.send_message(message.chat.id, "Введите целое число от 100 до 5000.")
+        bot.send_message(message.chat.id, f"Введите целое число от {apply_states[uid]['price_min']} до 5000.")
         return
     apply_states[uid]['price_max'] = p
     apply_states[uid]['step'] = 'services'
@@ -653,7 +656,6 @@ def apply_social(message):
     bot.send_message(message.chat.id, "✅ Заявка отправлена!", reply_markup=main_menu())
 
 # ===================== АДМИН-ПАНЕЛЬ =====================
-# (весь код админ-панели остаётся без изменений, только добавим portfolio в отображение заявок и вставку)
 @bot.message_handler(func=lambda m: m.text == "📋 Заявки" and is_admin(m.from_user.id))
 def admin_apps(message):
     conn = db()
@@ -729,8 +731,87 @@ def reject_app(call):
     conn.close()
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id)
 
-# Остальные админские функции (поиск по @username, список, статистика, выход) остаются без изменений, только добавим portfolio в отображение при поиске.
-# (Здесь для краткости опущены, но они полностью скопированы из предыдущей версии, с учётом поля portfolio).
+@bot.message_handler(func=lambda m: m.text == "🔧 Редактировать" and is_admin(m.from_user.id))
+def admin_search_by_username(message):
+    msg = bot.send_message(message.chat.id, "Введите @username скинмейкера:")
+    bot.register_next_step_handler(msg, admin_find_by_username)
+
+def admin_find_by_username(message):
+    username = message.text.strip().lstrip('@')
+    if not username:
+        bot.send_message(message.chat.id, "Неверный формат.")
+        return
+    try:
+        chat = bot.get_chat(f"@{username}")
+        user_id = chat.id
+    except Exception as e:
+        bot.send_message(message.chat.id, f"Ошибка поиска: {e}")
+        return
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM makers WHERE user_id=?", (user_id,))
+    m = c.fetchone()
+    conn.close()
+    if not m:
+        bot.send_message(message.chat.id, "Скинмейкер с таким username не зарегистрирован.")
+        return
+    if m[5] != m[6]:
+        price = f"от {m[5]} до {m[6]} ₽"
+    else:
+        price = f"{m[5]} ₽" if m[5] > 0 else "Цена не указана"
+    text = f"🔧 <b>Редактирование:</b> {m[3]}\n💰 {price}\n⭐ {m[11]:.1f}\nАктивен: {'✅' if m[13] else '❌'}"
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🔄 Переключить активность", callback_data=f"toggle_active_{m[0]}"),
+               types.InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_maker_{m[0]}"))
+    bot.send_message(message.chat.id, text, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('toggle_active_'))
+def toggle_active(call):
+    mid = int(call.data.split('_')[2])
+    conn = db()
+    c = conn.cursor()
+    c.execute("UPDATE makers SET is_active = NOT is_active WHERE id=?", (mid,))
+    conn.commit()
+    conn.close()
+    bot.answer_callback_query(call.id, "Статус изменён.")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('delete_maker_'))
+def delete_maker(call):
+    mid = int(call.data.split('_')[2])
+    conn = db()
+    c = conn.cursor()
+    c.execute("DELETE FROM makers WHERE id=?", (mid,))
+    conn.commit()
+    conn.close()
+    safe_edit_text(call, "Скинмейкер удалён.")
+
+@bot.message_handler(func=lambda m: m.text == "👥 Скинмейкеры" and is_admin(m.from_user.id))
+def admin_makers(message):
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT id, name, username, rating, is_active FROM makers")
+    makers = c.fetchall()
+    conn.close()
+    if not makers:
+        bot.send_message(message.chat.id, "Список пуст.")
+        return
+    text = "👥 <b>Скинмейкеры:</b>\n" + "\n".join([f"• {m[1]} (@{m[2] or 'ID'}) ⭐{m[3]:.1f} {'✅' if m[4] else '❌'}" for m in makers])
+    bot.send_message(message.chat.id, text[:4000])
+
+@bot.message_handler(func=lambda m: m.text == "📊 Статистика" and is_admin(m.from_user.id))
+def admin_stats(message):
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM makers")
+    makers = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM applications WHERE status='pending'")
+    apps = c.fetchone()[0]
+    conn.close()
+    bot.send_message(message.chat.id, f"📊 <b>Статистика:</b>\nСкинмейкеров: {makers}\nЗаявок ожидает: {apps}")
+
+@bot.message_handler(func=lambda m: m.text == "🔙 Выйти" and is_admin(m.from_user.id))
+def admin_exit(message):
+    bot.send_message(message.chat.id, "Вы вышли из админ-панели.", reply_markup=main_menu())
 
 # ===================== ЗАПУСК =====================
 if __name__ == '__main__':
